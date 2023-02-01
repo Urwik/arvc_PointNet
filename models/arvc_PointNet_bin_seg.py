@@ -8,8 +8,9 @@ import torch.nn.functional as F
 
 
 class STN3d(nn.Module):
-    def __init__(self):
+    def __init__(self, device = 'cpu'):
         super(STN3d, self).__init__()
+        self.device = device
         self.conv1 = torch.nn.Conv1d(3, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
         self.conv3 = torch.nn.Conv1d(128, 1024, 1)
@@ -39,15 +40,16 @@ class STN3d(nn.Module):
 
         iden = Variable(torch.from_numpy(np.array([1,0,0,0,1,0,0,0,1]).astype(np.float32))).view(1,9).repeat(batchsize,1)
         if x.is_cuda:
-            iden = iden.cuda(1)
+            iden = iden.to(self.device)
         x = x + iden
         x = x.view(-1, 3, 3)
         return x
 
 
 class STNkd(nn.Module):
-    def __init__(self, k=64):
+    def __init__(self, k=64, device = 'cpu'):
         super(STNkd, self).__init__()
+        self.device = device
         self.conv1 = torch.nn.Conv1d(k, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
         self.conv3 = torch.nn.Conv1d(128, 1024, 1)
@@ -78,16 +80,16 @@ class STNkd(nn.Module):
 
         iden = Variable(torch.from_numpy(np.eye(self.k).flatten().astype(np.float32))).view(1,self.k*self.k).repeat(batchsize,1)
         if x.is_cuda:
-            iden = iden.cuda(1)
+            iden = iden.to(self.device)
         x = x + iden
         x = x.view(-1, self.k, self.k)
         return x
 
 
 class PointNetfeat(nn.Module):
-    def __init__(self, n_feat = 3 ,global_feat = True, feature_transform = False):
+    def __init__(self, n_feat = 3, device = 'cpu', global_feat = True, feature_transform = False):
         super(PointNetfeat, self).__init__()
-        self.stn = STNkd(k=n_feat)
+        self.stn = STNkd(k=n_feat, device = device)
         self.conv1 = torch.nn.Conv1d(n_feat, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 128, 1)
         self.conv3 = torch.nn.Conv1d(128, 1024, 1)
@@ -128,10 +130,10 @@ class PointNetfeat(nn.Module):
 
 
 class PointNetCls(nn.Module):
-    def __init__(self, n_feat = 3, k=2, feature_transform=False):
+    def __init__(self, n_feat = 3, k=2, device ='cpu', feature_transform=False):
         super(PointNetCls, self).__init__()
         self.feature_transform = feature_transform
-        self.feat = PointNetfeat(n_feat=n_feat, global_feat=True, feature_transform=feature_transform)
+        self.feat = PointNetfeat(n_feat=n_feat, device=device, global_feat=True, feature_transform=feature_transform)
         self.fc1 = nn.Linear(1024, 512)
         self.fc2 = nn.Linear(512, 256)
         self.fc3 = nn.Linear(256, k)
@@ -149,11 +151,11 @@ class PointNetCls(nn.Module):
 
 
 class PointNetDenseCls(nn.Module):
-    def __init__(self, n_feat = 3, k = 2, feature_transform=False):
+    def __init__(self, n_feat = 3, k = 2, device = 'cpu' ,feature_transform=False):
         super(PointNetDenseCls, self).__init__()
         self.k = k
         self.feature_transform=feature_transform
-        self.feat = PointNetfeat(n_feat = n_feat, global_feat=False, feature_transform=feature_transform)
+        self.feat = PointNetfeat(n_feat = n_feat, device=device , global_feat=False, feature_transform=feature_transform)
         self.conv1 = torch.nn.Conv1d(1088, 512, 1)
         self.conv2 = torch.nn.Conv1d(512, 256, 1)
         self.conv3 = torch.nn.Conv1d(256, 128, 1)
@@ -178,12 +180,12 @@ class PointNetDenseCls(nn.Module):
         return x, trans, trans_feat
 
 
-def feature_transform_regularizer(trans):
+def feature_transform_regularizer(trans, device='cpu'):
     d = trans.size()[1]
     batchsize = trans.size()[0]
     I = torch.eye(d)[None, :, :]
     if trans.is_cuda:
-        I = I.cuda(1)
+        I = I.to(device)
     loss = torch.mean(torch.norm(torch.bmm(trans, trans.transpose(2,1)) - I, dim=(1,2)))
     return loss
 

@@ -1,11 +1,13 @@
 import numpy as np
 import os
+import shutil
 import math
 from torch.utils.data import DataLoader
 import torch
 import socket
 import sys
 import sklearn.metrics as metrics
+import yaml
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
@@ -137,7 +139,7 @@ def compute_metrics(label_, pred_):
 
 def compute_best_threshold(pred_, gt_):
     trshld_per_cloud = []
-    method_ = THRESHOLD_METHOD
+    method_ = config["THRESHOLD_METHOD"]
     for cloud in range(len(pred_)):
         if method_ == "roc":
             fpr, tpr, thresholds = metrics.roc_curve(gt_[cloud], pred_[cloud])
@@ -145,7 +147,7 @@ def compute_best_threshold(pred_, gt_):
             index = np.argmax(gmeans)
             trshld_per_cloud.append(thresholds[index])
 
-        elif method_ == "pre-rec":
+        elif method_ == "pr":
             precision_, recall_, thresholds = metrics.precision_recall_curve(gt_[cloud], pred_[cloud])
             f1_score_ = (2 * precision_ * recall_) / (precision_ + recall_)
             index = np.argmax(f1_score_)
@@ -170,77 +172,70 @@ if __name__ == '__main__':
 
     # HYPERPARAMETERS
     start_time = datetime.now()
-    BATCH_SIZE = 16
-    EPOCHS = 50
-    INIT_LR = 1e-3
 
-    TRAIN_SPLIT = 0.8
-    VAL_SPLIT = 1 - TRAIN_SPLIT
-
-    MAX_K = 1
-    METHODS = ["roc", "pre-rec", "tuning"]
-    THRESHOLD_METHOD = METHODS[1]
-
-    ROOT_DIR = 'ARVCTRUSS/code_test/ply_xyzlabelnormal'
-    OUTPUT_DIR = 'model_save/code_test/bin_seg_xyz'
-
+    CONFIG_FILE = 'train_configuration.yaml'
+    config_file_abs_path = os.path.join(current_project_path, 'config', CONFIG_FILE)
+    with open(config_file_abs_path) as file:
+        config = yaml.safe_load(file)
 
     # CHANGE PATH DEPENDING ON MACHINE
-    OUTPUT_PATH = os.path.join(current_project_path, OUTPUT_DIR)
+    output_dir = os.path.join(current_project_path, config["OUTPUT_DIR"])
 
     machine_name = socket.gethostname()
     if machine_name == 'arvc-Desktop':
-        ROOT_DIR = os.path.join('/media/arvc/data/datasets', ROOT_DIR)
+        dataset_dir = os.path.join('/media/arvc/data/datasets', config["DATASET_DIR"])
     else:
-        ROOT_DIR = os.path.join('/home/arvc/Fran/data/datasets', ROOT_DIR)
+        dataset_dir = os.path.join('/home/arvc/Fran/data/datasets', config["DATASET_DIR"])
 
-    date = datetime.today().strftime('%Y.%m.%d.%H')
-    folder_name = date + f' - {BATCH_SIZE}_{EPOCHS}_{INIT_LR}'
-    out_dir = os.path.join(OUTPUT_PATH, folder_name)
-
+    # CREATE A FOLDER TO SAVE TRAINING
+    folder_name = datetime.today().strftime('%y%m%d_%H%M')
+    out_dir = os.path.join(output_dir, folder_name)
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
 
+    shutil.copyfile(config_file_abs_path, os.path.join(out_dir, 'config.yaml'))
     # SELECT DEVICE TO WORK WITH
-    DEVICE = "cuda1"
-    device = torch.device(DEVICE if torch.cuda.is_available() else "cpu")
-
+    device = torch.device(config["DEVICE"])
 
     # INSTANCE DATASET
-    FEATURES = [0,1,2]
-    LABELS = 3
-    dataset = PLYDataset(root_dir=ROOT_DIR,
-                         features=FEATURES,
-                         labels=LABELS,
-                         normalize=True,
-                         binary=True,
+    dataset = PLYDataset(root_dir=dataset_dir,
+                         features=config["FEATURES"],
+                         labels=config["LABELS"],
+                         normalize=config["NORMALIZE"],
+                         binary=config["BINARY"],
                          transform=None)
 
     # INSTANCIE MODEL, LOSS FUNCTION AND OPTIMIZER
-    model = PointNetDenseCls(k=MAX_K, n_feat=len(FEATURES), device=DEVICE).to(device)
+    model = PointNetDenseCls(k=config["OUTPUT_CLASSES"],
+                             n_feat=len(config["FEATURES"]),
+                             device=device).to(device)
     loss_fn = torch.nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=INIT_LR)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config["LR"])
 
     # Split validation and train
-    train_size = math.floor(len(dataset) * TRAIN_SPLIT)
+    train_size = math.floor(len(dataset) * config["TRAIN_SPLIT"])
     val_size = len(dataset) - train_size
 
     train_set, val_set = torch.utils.data.random_split(dataset, [train_size, val_size],
                                                        generator=torch.Generator().manual_seed(74))
 
     # INSTANCE DATALOADERS
-    train_dataloader = DataLoader(train_set, batch_size=BATCH_SIZE, num_workers=10, shuffle=True, pin_memory=True, drop_last=False)
-    val_dataloader = DataLoader(val_set, batch_size=BATCH_SIZE, num_workers=10, shuffle=True, pin_memory=True, drop_last=False)
+    train_dataloader = DataLoader(train_set, batch_size=config["BATCH_SIZE"], num_workers=10, shuffle=True, pin_memory=True, drop_last=False)
+    val_dataloader = DataLoader(val_set, batch_size=config["BATCH_SIZE"], num_workers=10, shuffle=True, pin_memory=True, drop_last=False)
 
     # ---------------------------------------------------------------------------------------------------------------- #
     # --- TRAIN LOOP ------------------------------------------------------------------------------------------------- #
     print('TRAINING ON: ', device)
-    best_val_loss = 1
-    epoch_timeout = 5
     epoch_timeout_count = 0
+    tc = config["TERMINATION_CRITERIA"]
+    if tc == "loss":
+        best_val = 1
+    else:
+        best_val = 0
+
     f1, precision, recall, conf_matrix, train_loss, valid_loss, threshold = [], [], [], [], [], [], []
 
-    for epoch in range(EPOCHS):
+    for epoch in range(config["EPOCHS"]):
         print(f"EPOCH: {epoch} {'-' * 50}")
         epoch_start_time = datetime.now()
 
@@ -271,15 +266,40 @@ if __name__ == '__main__':
         print('Epoch Duration: {}'.format(epoch_end_time-epoch_start_time))
 
         # SAVE MODEL AND TEMINATION CRITERIA
-        avg_epoch_val_loss = np.mean(valid_results[0])
-        if avg_epoch_val_loss < best_val_loss:
-            torch.save(model.state_dict(), out_dir + f'/best_model.pth')
-            best_val_loss = avg_epoch_val_loss
-            epoch_timeout_count = 0
-        elif epoch_timeout_count < epoch_timeout:
-            epoch_timeout_count += 1
+        if tc == "loss":
+            last_val = np.mean(valid_results[0])
+            if last_val < best_val:
+                torch.save(model.state_dict(), out_dir + f'/best_model.pth')
+                best_val = last_val
+                epoch_timeout_count = 0
+            elif epoch_timeout_count < config["EPOCH_TIMEOUT"]:
+                epoch_timeout_count += 1
+            else:
+                break
+        elif tc == "precision":
+            last_val = np.mean(valid_results[2])
+            if last_val > best_val:
+                torch.save(model.state_dict(), out_dir + f'/best_model.pth')
+                best_val = last_val
+                epoch_timeout_count = 0
+            elif epoch_timeout_count < config["EPOCH_TIMEOUT"]:
+                epoch_timeout_count += 1
+            else:
+                break
+        elif tc == "f1_score":
+            last_val = np.mean(valid_results[1])
+            if last_val > best_val:
+                torch.save(model.state_dict(), out_dir + f'/best_model.pth')
+                best_val = last_val
+                epoch_timeout_count = 0
+            elif epoch_timeout_count < config["EPOCH_TIMEOUT"]:
+                epoch_timeout_count += 1
+            else:
+                break
         else:
-            break
+            print("WRONG TERMINATION CRITERIA")
+            exit()
+
 
     # SAVE RESULTS
     np.save(out_dir + f'/train_loss', np.array(train_loss))
