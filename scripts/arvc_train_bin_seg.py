@@ -170,9 +170,15 @@ def compute_best_threshold(pred_, gt_):
 
 if __name__ == '__main__':
 
-    Files = ['xyz_precision_pr.yaml',
-             'xyzCurv_precision_pr.yaml',
-             'xyzNormals_precision_pr.yaml']
+    Files = ['xyz_f1_pr.yaml',
+             'xyzCurv_f1_pr.yaml',
+             'xyzNormals_f1_pr.yaml',
+             'xyz_bceloss_pr_valid.yaml',
+             'xyzCurv_bceloss_pr_valid.yaml',
+             'xyzNormals_bceloss_pr_valid.yaml',
+             'xyz_f1_pr_valid.yaml',
+             'xyzCurv_f1_pr_valid.yaml',
+             'xyzNormals_f1_pr_valid.yaml',]
 
     for configFile in Files:
         start_time = datetime.now()
