@@ -169,8 +169,6 @@ def compute_best_threshold(pred_, gt_):
 
 
 if __name__ == '__main__':
-
-    # HYPERPARAMETERS
     start_time = datetime.now()
 
     # --------------------------------------------------------------------------------------------#
@@ -240,9 +238,9 @@ if __name__ == '__main__':
                                    transform=None)
     else:
         # SPLIT VALIDATION AND TRAIN
-        train_size = math.floor(len(dataset) * TRAIN_SPLIT)
-        val_size = len(dataset) - train_size
-        train_dataset, valid_dataset = torch.utils.data.random_split(dataset, [train_size, val_size],
+        train_size = math.floor(len(train_dataset) * TRAIN_SPLIT)
+        val_size = len(train_dataset) - train_size
+        train_dataset, valid_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size],
                                                            generator=torch.Generator().manual_seed(74))
 
     # INSTANCE DATALOADERS
@@ -307,7 +305,7 @@ if __name__ == '__main__':
         if TERMINATION_CRITERIA == "loss":
             last_val = np.mean(valid_results[0])
             if last_val < best_val:
-                torch.save(model.state_dict(), out_dir + f'/best_model.pth')
+                torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
                 best_val = last_val
                 epoch_timeout_count = 0
             elif epoch_timeout_count < EPOCH_TIMEOUT:
@@ -317,7 +315,7 @@ if __name__ == '__main__':
         elif TERMINATION_CRITERIA == "precision":
             last_val = np.mean(valid_results[2])
             if last_val > best_val:
-                torch.save(model.state_dict(), out_dir + f'/best_model.pth')
+                torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
                 best_val = last_val
                 epoch_timeout_count = 0
             elif epoch_timeout_count < EPOCH_TIMEOUT:
@@ -327,7 +325,7 @@ if __name__ == '__main__':
         elif TERMINATION_CRITERIA == "f1_score":
             last_val = np.mean(valid_results[1])
             if last_val > best_val:
-                torch.save(model.state_dict(), out_dir + f'/best_model.pth')
+                torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
                 best_val = last_val
                 epoch_timeout_count = 0
             elif epoch_timeout_count < EPOCH_TIMEOUT:
@@ -340,13 +338,13 @@ if __name__ == '__main__':
 
 
     # SAVE RESULTS
-    np.save(out_dir + f'/train_loss', np.array(train_loss))
-    np.save(out_dir + f'/valid_loss', np.array(valid_loss))
-    np.save(out_dir + f'/f1_score', np.array(f1))
-    np.save(out_dir + f'/precision', np.array(precision))
-    np.save(out_dir + f'/recall', np.array(recall))
-    np.save(out_dir + f'/conf_matrix', np.array(conf_matrix))
-    np.save(out_dir + f'/threshold', np.array(threshold))
+    np.save(OUT_DIR + f'/train_loss', np.array(train_loss))
+    np.save(OUT_DIR + f'/valid_loss', np.array(valid_loss))
+    np.save(OUT_DIR + f'/f1_score', np.array(f1))
+    np.save(OUT_DIR + f'/precision', np.array(precision))
+    np.save(OUT_DIR + f'/recall', np.array(recall))
+    np.save(OUT_DIR + f'/conf_matrix', np.array(conf_matrix))
+    np.save(OUT_DIR + f'/threshold', np.array(threshold))
 
     end_time = datetime.now()
     print('Total Training Duration: {}'.format(end_time-start_time))
