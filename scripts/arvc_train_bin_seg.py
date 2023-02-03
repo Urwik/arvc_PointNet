@@ -169,183 +169,189 @@ def compute_best_threshold(pred_, gt_):
 
 
 if __name__ == '__main__':
-    start_time = datetime.now()
 
-    # --------------------------------------------------------------------------------------------#
-    # GET CONFIGURATION PARAMETERS
-    CONFIG_FILE = 'train_configuration.yaml'
-    config_file_abs_path = os.path.join(current_project_path, 'config', CONFIG_FILE)
-    with open(config_file_abs_path) as file:
-        config = yaml.safe_load(file)
+    Files = ['xyz_precision_pr.yaml',
+             'xyzCurv_precision_pr.yaml',
+             'xyzNormals_precision_pr.yaml']
 
-    # DATASET
-    TRAIN_DIR= config["TRAIN_DIR"]
-    VALID_DIR= config["VALID_DIR"]
-    USE_VALID_DATA= config["USE_VALID_DATA"]
-    OUTPUT_DIR= config["OUTPUT_DIR"]
-    TRAIN_SPLIT= config["TRAIN_SPLIT"]
-    FEATURES= config["FEATURES"]
-    LABELS= config["LABELS"]
-    NORMALIZE= config["NORMALIZE"]
-    BINARY= config["BINARY"]
-    # THRESHOLD_METHOS POSIBILITIES = cuda:X, cpu
-    DEVICE= config["DEVICE"]
-    BATCH_SIZE= config["BATCH_SIZE"]
-    EPOCHS= config["EPOCHS"]
-    LR= config["LR"]
-    # MODEL
-    OUTPUT_CLASSES= config["OUTPUT_CLASSES"]
-    # THRESHOLD_METHOS POSIBILITIES = roc, pr, tuning
-    THRESHOLD_METHOD= config["THRESHOLD_METHOD"]
-    # TERMINATION_CRITERIA POSIBILITIES = loss, precision, f1_score
-    TERMINATION_CRITERIA= config["TERMINATION_CRITERIA"]
-    EPOCH_TIMEOUT= config["EPOCH_TIMEOUT"]
+    for configFile in Files:
+        start_time = datetime.now()
 
-    # --------------------------------------------------------------------------------------------#
-    # CHANGE PATH DEPENDING ON MACHINE
-    machine_name = socket.gethostname()
-    if machine_name == 'arvc-Desktop':
-        TRAIN_DATA = os.path.join('/media/arvc/data/datasets', TRAIN_DIR)
-        VALID_DATA = os.path.join('/media/arvc/data/datasets', VALID_DIR)
-    else:
-        TRAIN_DATA = os.path.join('/home/arvc/Fran/data/datasets', TRAIN_DIR)
-        VALID_DATA = os.path.join('/home/arvc/Fran/data/datasets', VALID_DIR)
-    # --------------------------------------------------------------------------------------------#
-    # CREATE A FOLDER TO SAVE TRAINING
-    OUT_DIR = os.path.join(current_project_path, OUTPUT_DIR)
-    folder_name = datetime.today().strftime('%y%m%d_%H%M')
-    OUT_DIR = os.path.join(OUT_DIR, folder_name)
-    if not os.path.exists(OUT_DIR):
-        os.makedirs(OUT_DIR)
+        # --------------------------------------------------------------------------------------------#
+        # GET CONFIGURATION PARAMETERS
+        CONFIG_FILE = configFile
+        config_file_abs_path = os.path.join(current_project_path, 'config', CONFIG_FILE)
+        with open(config_file_abs_path) as file:
+            config = yaml.safe_load(file)
 
-    shutil.copyfile(config_file_abs_path, os.path.join(OUT_DIR, 'config.yaml'))
+        # DATASET
+        TRAIN_DIR= config["TRAIN_DIR"]
+        VALID_DIR= config["VALID_DIR"]
+        USE_VALID_DATA= config["USE_VALID_DATA"]
+        OUTPUT_DIR= config["OUTPUT_DIR"]
+        TRAIN_SPLIT= config["TRAIN_SPLIT"]
+        FEATURES= config["FEATURES"]
+        LABELS= config["LABELS"]
+        NORMALIZE= config["NORMALIZE"]
+        BINARY= config["BINARY"]
+        # THRESHOLD_METHOS POSIBILITIES = cuda:X, cpu
+        DEVICE= config["DEVICE"]
+        BATCH_SIZE= config["BATCH_SIZE"]
+        EPOCHS= config["EPOCHS"]
+        LR= config["LR"]
+        # MODEL
+        OUTPUT_CLASSES= config["OUTPUT_CLASSES"]
+        # THRESHOLD_METHOS POSIBILITIES = roc, pr, tuning
+        THRESHOLD_METHOD= config["THRESHOLD_METHOD"]
+        # TERMINATION_CRITERIA POSIBILITIES = loss, precision, f1_score
+        TERMINATION_CRITERIA= config["TERMINATION_CRITERIA"]
+        EPOCH_TIMEOUT= config["EPOCH_TIMEOUT"]
 
-    # ---------------------------------------------------------------------------------------------------------------- #
-    # INSTANCE DATASET
-    train_dataset = PLYDataset(root_dir=TRAIN_DATA,
-                               features=FEATURES,
-                               labels=LABELS,
-                               normalize=NORMALIZE,
-                               binary=BINARY,
-                               transform=None)
+        # --------------------------------------------------------------------------------------------#
+        # CHANGE PATH DEPENDING ON MACHINE
+        machine_name = socket.gethostname()
+        if machine_name == 'arvc-Desktop':
+            TRAIN_DATA = os.path.join('/media/arvc/data/datasets', TRAIN_DIR)
+            VALID_DATA = os.path.join('/media/arvc/data/datasets', VALID_DIR)
+        else:
+            TRAIN_DATA = os.path.join('/home/arvc/Fran/data/datasets', TRAIN_DIR)
+            VALID_DATA = os.path.join('/home/arvc/Fran/data/datasets', VALID_DIR)
+        # --------------------------------------------------------------------------------------------#
+        # CREATE A FOLDER TO SAVE TRAINING
+        OUT_DIR = os.path.join(current_project_path, OUTPUT_DIR)
+        folder_name = datetime.today().strftime('%y%m%d_%H%M')
+        OUT_DIR = os.path.join(OUT_DIR, folder_name)
+        if not os.path.exists(OUT_DIR):
+            os.makedirs(OUT_DIR)
 
-    if USE_VALID_DATA:
-        valid_dataset = PLYDataset(root_dir=VALID_DATA,
+        shutil.copyfile(config_file_abs_path, os.path.join(OUT_DIR, 'config.yaml'))
+
+        # ---------------------------------------------------------------------------------------------------------------- #
+        # INSTANCE DATASET
+        train_dataset = PLYDataset(root_dir=TRAIN_DATA,
                                    features=FEATURES,
                                    labels=LABELS,
                                    normalize=NORMALIZE,
                                    binary=BINARY,
                                    transform=None)
-    else:
-        # SPLIT VALIDATION AND TRAIN
-        train_size = math.floor(len(train_dataset) * TRAIN_SPLIT)
-        val_size = len(train_dataset) - train_size
-        train_dataset, valid_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size],
-                                                           generator=torch.Generator().manual_seed(74))
 
-    # INSTANCE DATALOADERS
-    train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=10,
-                                  shuffle=True, pin_memory=True, drop_last=False)
-    valid_dataloader = DataLoader(valid_dataset, batch_size=BATCH_SIZE, num_workers=10,
-                                  shuffle=True, pin_memory=True, drop_last=False)
-
-    # ---------------------------------------------------------------------------------------------------------------- #
-    # SELECT MODEL
-    device = torch.device(DEVICE)
-    model = PointNetDenseCls(k=OUTPUT_CLASSES,
-                             n_feat=len(FEATURES),
-                             device=device).to(device)
-    loss_fn = torch.nn.BCELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=LR)
-
-
-    # ---------------------------------------------------------------------------------------------------------------- #
-    # --- TRAIN LOOP ------------------------------------------------------------------------------------------------- #
-    print('TRAINING ON: ', device)
-    epoch_timeout_count = 0
-
-    if TERMINATION_CRITERIA == "loss":
-        best_val = 1
-    else:
-        best_val = 0
-
-    f1, precision, recall, conf_matrix, train_loss, valid_loss, threshold = [], [], [], [], [], [], []
-
-    for epoch in range(EPOCHS):
-        print(f"EPOCH: {epoch} {'-' * 50}")
-        epoch_start_time = datetime.now()
-
-        train_results = train(device_=device,
-                              train_loader_=train_dataloader,
-                              model_=model,
-                              loss_fn_=loss_fn,
-                              optimizer_=optimizer)
-
-        valid_results = valid(device_=device,
-                              dataloader_=valid_dataloader,
-                              model_=model,
-                              loss_fn_=loss_fn)
-
-        # GET RESULTS
-        train_loss.append(train_results)
-        valid_loss.append(valid_results[0])
-        f1.append(valid_results[1])
-        precision.append(valid_results[2])
-        recall.append(valid_results[3])
-        conf_matrix.append(valid_results[4])
-        threshold.append(valid_results[5])
-
-        print('-' * 50)
-        print('DURATION:')
-        print('-' * 50)
-        epoch_end_time = datetime.now()
-        print('Epoch Duration: {}'.format(epoch_end_time-epoch_start_time))
-
-        # SAVE MODEL AND TEMINATION CRITERIA
-        if TERMINATION_CRITERIA == "loss":
-            last_val = np.mean(valid_results[0])
-            if last_val < best_val:
-                torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
-                best_val = last_val
-                epoch_timeout_count = 0
-            elif epoch_timeout_count < EPOCH_TIMEOUT:
-                epoch_timeout_count += 1
-            else:
-                break
-        elif TERMINATION_CRITERIA == "precision":
-            last_val = np.mean(valid_results[2])
-            if last_val > best_val:
-                torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
-                best_val = last_val
-                epoch_timeout_count = 0
-            elif epoch_timeout_count < EPOCH_TIMEOUT:
-                epoch_timeout_count += 1
-            else:
-                break
-        elif TERMINATION_CRITERIA == "f1_score":
-            last_val = np.mean(valid_results[1])
-            if last_val > best_val:
-                torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
-                best_val = last_val
-                epoch_timeout_count = 0
-            elif epoch_timeout_count < EPOCH_TIMEOUT:
-                epoch_timeout_count += 1
-            else:
-                break
+        if USE_VALID_DATA:
+            valid_dataset = PLYDataset(root_dir=VALID_DATA,
+                                       features=FEATURES,
+                                       labels=LABELS,
+                                       normalize=NORMALIZE,
+                                       binary=BINARY,
+                                       transform=None)
         else:
-            print("WRONG TERMINATION CRITERIA")
-            exit()
+            # SPLIT VALIDATION AND TRAIN
+            train_size = math.floor(len(train_dataset) * TRAIN_SPLIT)
+            val_size = len(train_dataset) - train_size
+            train_dataset, valid_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size],
+                                                               generator=torch.Generator().manual_seed(74))
+
+        # INSTANCE DATALOADERS
+        train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=10,
+                                      shuffle=True, pin_memory=True, drop_last=False)
+        valid_dataloader = DataLoader(valid_dataset, batch_size=BATCH_SIZE, num_workers=10,
+                                      shuffle=True, pin_memory=True, drop_last=False)
+
+        # ---------------------------------------------------------------------------------------------------------------- #
+        # SELECT MODEL
+        device = torch.device(DEVICE)
+        model = PointNetDenseCls(k=OUTPUT_CLASSES,
+                                 n_feat=len(FEATURES),
+                                 device=device).to(device)
+        loss_fn = torch.nn.BCELoss()
+        optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 
 
-    # SAVE RESULTS
-    np.save(OUT_DIR + f'/train_loss', np.array(train_loss))
-    np.save(OUT_DIR + f'/valid_loss', np.array(valid_loss))
-    np.save(OUT_DIR + f'/f1_score', np.array(f1))
-    np.save(OUT_DIR + f'/precision', np.array(precision))
-    np.save(OUT_DIR + f'/recall', np.array(recall))
-    np.save(OUT_DIR + f'/conf_matrix', np.array(conf_matrix))
-    np.save(OUT_DIR + f'/threshold', np.array(threshold))
+        # ---------------------------------------------------------------------------------------------------------------- #
+        # --- TRAIN LOOP ------------------------------------------------------------------------------------------------- #
+        print('TRAINING ON: ', device)
+        epoch_timeout_count = 0
 
-    end_time = datetime.now()
-    print('Total Training Duration: {}'.format(end_time-start_time))
-    print("Training Done!")
+        if TERMINATION_CRITERIA == "loss":
+            best_val = 1
+        else:
+            best_val = 0
+
+        f1, precision, recall, conf_matrix, train_loss, valid_loss, threshold = [], [], [], [], [], [], []
+
+        for epoch in range(EPOCHS):
+            print(f"EPOCH: {epoch} {'-' * 50}")
+            epoch_start_time = datetime.now()
+
+            train_results = train(device_=device,
+                                  train_loader_=train_dataloader,
+                                  model_=model,
+                                  loss_fn_=loss_fn,
+                                  optimizer_=optimizer)
+
+            valid_results = valid(device_=device,
+                                  dataloader_=valid_dataloader,
+                                  model_=model,
+                                  loss_fn_=loss_fn)
+
+            # GET RESULTS
+            train_loss.append(train_results)
+            valid_loss.append(valid_results[0])
+            f1.append(valid_results[1])
+            precision.append(valid_results[2])
+            recall.append(valid_results[3])
+            conf_matrix.append(valid_results[4])
+            threshold.append(valid_results[5])
+
+            print('-' * 50)
+            print('DURATION:')
+            print('-' * 50)
+            epoch_end_time = datetime.now()
+            print('Epoch Duration: {}'.format(epoch_end_time-epoch_start_time))
+
+            # SAVE MODEL AND TEMINATION CRITERIA
+            if TERMINATION_CRITERIA == "loss":
+                last_val = np.mean(valid_results[0])
+                if last_val < best_val:
+                    torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
+                    best_val = last_val
+                    epoch_timeout_count = 0
+                elif epoch_timeout_count < EPOCH_TIMEOUT:
+                    epoch_timeout_count += 1
+                else:
+                    break
+            elif TERMINATION_CRITERIA == "precision":
+                last_val = np.mean(valid_results[2])
+                if last_val > best_val:
+                    torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
+                    best_val = last_val
+                    epoch_timeout_count = 0
+                elif epoch_timeout_count < EPOCH_TIMEOUT:
+                    epoch_timeout_count += 1
+                else:
+                    break
+            elif TERMINATION_CRITERIA == "f1_score":
+                last_val = np.mean(valid_results[1])
+                if last_val > best_val:
+                    torch.save(model.state_dict(), OUT_DIR + f'/best_model.pth')
+                    best_val = last_val
+                    epoch_timeout_count = 0
+                elif epoch_timeout_count < EPOCH_TIMEOUT:
+                    epoch_timeout_count += 1
+                else:
+                    break
+            else:
+                print("WRONG TERMINATION CRITERIA")
+                exit()
+
+
+        # SAVE RESULTS
+        np.save(OUT_DIR + f'/train_loss', np.array(train_loss))
+        np.save(OUT_DIR + f'/valid_loss', np.array(valid_loss))
+        np.save(OUT_DIR + f'/f1_score', np.array(f1))
+        np.save(OUT_DIR + f'/precision', np.array(precision))
+        np.save(OUT_DIR + f'/recall', np.array(recall))
+        np.save(OUT_DIR + f'/conf_matrix', np.array(conf_matrix))
+        np.save(OUT_DIR + f'/threshold', np.array(threshold))
+
+        end_time = datetime.now()
+        print('Total Training Duration: {}'.format(end_time-start_time))
+        print("Training Done!")
