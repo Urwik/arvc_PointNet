@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 
 # IMPORTS PATH TO THE PROJECT
 current_model_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-pycharm_projects_path = os.path.dirname(current_model_path)
+pycharm_projects_path = os.path.dirname(os.path.dirname(current_model_path))
 # IMPORTS PATH TO OTHER PYCHARM PROJECTS
 sys.path.append(current_model_path)
 sys.path.append(pycharm_projects_path)
@@ -188,7 +188,6 @@ if __name__ == '__main__':
         BATCH_SIZE= config["test"]["BATCH_SIZE"]
         OUTPUT_CLASSES= config["train"]["OUTPUT_CLASSES"]
         SAVE_PRED_CLOUDS= config["test"]["SAVE_PRED_CLOUDS"]
-        PRED_CLOUDS_DIR= config["test"]["PRED_CLOUDS_DIR"]
 
         # --------------------------------------------------------------------------------------------#
         # CHANGE PATH DEPENDING ON MACHINE
@@ -197,13 +196,6 @@ if __name__ == '__main__':
             TEST_DATA = os.path.join('/media/arvc/data/datasets', TEST_DIR)
         else:
             TEST_DATA = os.path.join('/home/arvc/Fran/data/datasets', TEST_DIR)
-
-
-        date = datetime.today().strftime('%y%m%d_%H%M')
-        out_dir = os.path.join(PRED_CLOUDS_DIR, date)
-
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
 
         # --------------------------------------------------------------------------------------------#
         # INSTANCE DATASET
@@ -222,8 +214,14 @@ if __name__ == '__main__':
             device = torch.device(DEVICE)
         else:
             device = torch.device("cpu")
+
         model = PointNetDenseCls(k = OUTPUT_CLASSES, n_feat = len(FEATURES), device=device).to(device)
         loss_fn = torch.nn.BCELoss()
+
+        # MAKE DIR WHERE TO SAVE THE CLOUDS
+        PRED_CLOUDS_DIR = os.path.join(MODEL_PATH, "pred_clouds")
+        if not os.path.exists(PRED_CLOUDS_DIR):
+            os.makedirs(PRED_CLOUDS_DIR)
 
         # LOAD TRAINED MODEL
         model.load_state_dict(torch.load(os.path.join(MODEL_PATH, 'best_model.pth'), map_location=device))
