@@ -17,6 +17,7 @@ train:
   THRESHOLD_METHOD: pr # roc, pr, tuning
   TERMINATION_CRITERIA: loss # loss, precision, f1_score
   EPOCH_TIMEOUT: 5
+  LOSS: BCELoss
 
 test:
   TEST_DIR: ARVCTRUSS/test/ply_xyzlabelnormal
