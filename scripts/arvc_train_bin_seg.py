@@ -170,15 +170,7 @@ def compute_best_threshold(pred_, gt_):
 
 if __name__ == '__main__':
 
-    Files = ['xyz_f1_pr.yaml',
-             'xyzCurv_f1_pr.yaml',
-             'xyzNormals_f1_pr.yaml',
-             'xyz_bceloss_pr_valid.yaml',
-             'xyzCurv_bceloss_pr_valid.yaml',
-             'xyzNormals_bceloss_pr_valid.yaml',
-             'xyz_f1_pr_valid.yaml',
-             'xyzCurv_f1_pr_valid.yaml',
-             'xyzNormals_f1_pr_valid.yaml',]
+    Files = ['train_configuration.yaml']
 
     for configFile in Files:
         start_time = datetime.now()
@@ -190,28 +182,23 @@ if __name__ == '__main__':
         with open(config_file_abs_path) as file:
             config = yaml.safe_load(file)
 
-        # DATASET
-        TRAIN_DIR= config["TRAIN_DIR"]
-        VALID_DIR= config["VALID_DIR"]
-        USE_VALID_DATA= config["USE_VALID_DATA"]
-        OUTPUT_DIR= config["OUTPUT_DIR"]
-        TRAIN_SPLIT= config["TRAIN_SPLIT"]
-        FEATURES= config["FEATURES"]
-        LABELS= config["LABELS"]
-        NORMALIZE= config["NORMALIZE"]
-        BINARY= config["BINARY"]
-        # THRESHOLD_METHOS POSIBILITIES = cuda:X, cpu
-        DEVICE= config["DEVICE"]
-        BATCH_SIZE= config["BATCH_SIZE"]
-        EPOCHS= config["EPOCHS"]
-        LR= config["LR"]
-        # MODEL
-        OUTPUT_CLASSES= config["OUTPUT_CLASSES"]
-        # THRESHOLD_METHOS POSIBILITIES = roc, pr, tuning
-        THRESHOLD_METHOD= config["THRESHOLD_METHOD"]
-        # TERMINATION_CRITERIA POSIBILITIES = loss, precision, f1_score
-        TERMINATION_CRITERIA= config["TERMINATION_CRITERIA"]
-        EPOCH_TIMEOUT= config["EPOCH_TIMEOUT"]
+        TRAIN_DIR= config["train"]["TRAIN_DIR"]
+        VALID_DIR= config["train"]["VALID_DIR"]
+        USE_VALID_DATA= config["train"]["USE_VALID_DATA"]
+        OUTPUT_DIR= config["train"]["OUTPUT_DIR"]
+        TRAIN_SPLIT= config["train"]["TRAIN_SPLIT"]
+        FEATURES= config["train"]["FEATURES"]
+        LABELS= config["train"]["LABELS"]
+        NORMALIZE= config["train"]["NORMALIZE"]
+        BINARY= config["train"]["BINARY"]
+        DEVICE= config["train"]["DEVICE"]
+        BATCH_SIZE= config["train"]["BATCH_SIZE"]
+        EPOCHS= config["train"]["EPOCHS"]
+        LR= config["train"]["LR"]
+        OUTPUT_CLASSES= config["train"]["OUTPUT_CLASSES"]
+        THRESHOLD_METHOD= config["train"]["THRESHOLD_METHOD"]
+        TERMINATION_CRITERIA= config["train"]["TERMINATION_CRITERIA"]
+        EPOCH_TIMEOUT= config["train"]["EPOCH_TIMEOUT"]
 
         # --------------------------------------------------------------------------------------------#
         # CHANGE PATH DEPENDING ON MACHINE
@@ -232,14 +219,14 @@ if __name__ == '__main__':
 
         shutil.copyfile(config_file_abs_path, os.path.join(OUT_DIR, 'config.yaml'))
 
-        # ---------------------------------------------------------------------------------------------------------------- #
+        # -------------------------------------------------------------------------------------------- #
         # INSTANCE DATASET
         train_dataset = PLYDataset(root_dir=TRAIN_DATA,
                                    features=FEATURES,
                                    labels=LABELS,
                                    normalize=NORMALIZE,
                                    binary=BINARY,
-                                   transform=None)
+                                   compute_weights=False)
 
         if USE_VALID_DATA:
             valid_dataset = PLYDataset(root_dir=VALID_DATA,
@@ -247,7 +234,7 @@ if __name__ == '__main__':
                                        labels=LABELS,
                                        normalize=NORMALIZE,
                                        binary=BINARY,
-                                       transform=None)
+                                       compute_weights=False)
         else:
             # SPLIT VALIDATION AND TRAIN
             train_size = math.floor(len(train_dataset) * TRAIN_SPLIT)
@@ -263,7 +250,11 @@ if __name__ == '__main__':
 
         # ---------------------------------------------------------------------------------------------------------------- #
         # SELECT MODEL
-        device = torch.device(DEVICE)
+        if torch.cuda.is_available():
+            device = torch.device(DEVICE)
+        else:
+            device = torch.device("cpu")
+
         model = PointNetDenseCls(k=OUTPUT_CLASSES,
                                  n_feat=len(FEATURES),
                                  device=device).to(device)

@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import socket
 from torch.utils.data import DataLoader
 import torch
 import sklearn.metrics as metrics
@@ -44,7 +45,7 @@ def test(device_, dataloader_, model_, loss_fn_):
             conf_m_lst.append(conf_m)
 
             if SAVE_PRED_CLOUDS:
-                save_pred_as_ply(data, pred_fix, PRED_CLOUDS_DIR, filename_)
+                save_pred_as_ply(data, pred_fix, out_dir, filename_)
 
             current_clouds += data.size(0)
 
@@ -108,16 +109,10 @@ def save_pred_as_ply(data_, pred_fix_, output_dir_, filename_):
     batch_size = np.size(data_, 0)
     n_points = np.size(data_, 1)
 
-    date = datetime.today().strftime('%y%m%d_%H%M')
-    out_dir = os.path.join(output_dir_, date)
-
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-
-    feat_xyzlabel = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'), ('label', 'u4')]
+    feat_xyzlabel = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('label', 'u4')]
 
     for i in range(batch_size):
-        xyz = data_[i][:, [0,1,2,3,4,5]]
+        xyz = data_[i][:, [0,1,2]]
         actual_pred = pred_fix_[i].reshape(n_points, 1)
         cloud = np.hstack((xyz, actual_pred))
         filename = filename_[0]
@@ -129,43 +124,61 @@ if __name__ == '__main__':
 
     # --------------------------------------------------------------------------------------------#
     # GET CONFIGURATION PARAMETERS
-    CONFIG_FILE = 'test_configuration.yaml'
-    config_file_abs_path = os.path.join(current_project_path, 'config', CONFIG_FILE)
+    # CONFIG_FILE = 'test_configuration.yaml'
+    MODEL_DIR = 'bs_xyzn_bce_vt_loss'
+    config_file_abs_path = os.path.join(current_project_path, 'model_save', MODEL_DIR, 'config.yaml')
     with open(config_file_abs_path) as file:
         config = yaml.safe_load(file)
 
     # DATASET
-    TEST_DIR= config["TEST_DIR"]
+    TEST_DIR= config["test"]["TEST_DIR"]
     FEATURES= config["FEATURES"]
     LABELS= config["LABELS"]
     NORMALIZE= config["NORMALIZE"]
     BINARY= config["BINARY"]
     # THRESHOLD_METHOS POSIBILITIES = cuda:X, cpu
-    DEVICE= config["DEVICE"]
-    BATCH_SIZE= config["BATCH_SIZE"]
+    DEVICE= config["test"]["DEVICE"]
+    BATCH_SIZE= config["test"]["BATCH_SIZE"]
     # MODEL
-    MODEL_PATH= config["MODEL_PATH"]
+    MODEL_PATH= os.path.join(current_project_path, 'model_save', MODEL_DIR)
     # THRESHOLD= config["THRESHOLD"]
     OUTPUT_CLASSES= config["OUTPUT_CLASSES"]
     # LOSS = BCELoss()
     # RESULTS
-    SAVE_PRED_CLOUDS= config["SAVE_PRED_CLOUDS"]
-    PRED_CLOUDS_DIR= config["PRED_CLOUDS_DIR"]
+    SAVE_PRED_CLOUDS= config["test"]["SAVE_PRED_CLOUDS"]
+    PRED_CLOUDS_DIR= config["test"]["PRED_CLOUDS_DIR"]
+
+    # --------------------------------------------------------------------------------------------#
+    # CHANGE PATH DEPENDING ON MACHINE
+    machine_name = socket.gethostname()
+    if machine_name == 'arvc-Desktop':
+        TEST_DATA = os.path.join('/media/arvc/data/datasets', TEST_DIR)
+    else:
+        TEST_DATA = os.path.join('/home/arvc/Fran/data/datasets', TEST_DIR)
+
+
+    date = datetime.today().strftime('%y%m%d_%H%M')
+    out_dir = os.path.join(PRED_CLOUDS_DIR, date)
+
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
 
     # --------------------------------------------------------------------------------------------#
     # INSTANCE DATASET
-    dataset = PLYDataset(root_dir = TEST_DIR,
+    dataset = PLYDataset(root_dir = TEST_DATA,
                          features= FEATURES,
                          labels = LABELS,
                          normalize = NORMALIZE,
-                         binary = BINARY,
-                         transform = None)
+                         binary = BINARY)
 
     # INSTANCE DATALOADER
     test_dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, drop_last=False)
 
     # SELECT DEVICE TO WORK WITH
-    device = torch.device(DEVICE)
+    if torch.cuda.is_available():
+        device = torch.device(DEVICE)
+    else:
+        device = torch.device("cpu")
     model = PointNetDenseCls(k = OUTPUT_CLASSES, n_feat = len(FEATURES), device=device).to(device)
     loss_fn = torch.nn.BCELoss()
 
