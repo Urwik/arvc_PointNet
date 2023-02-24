@@ -5,3 +5,5 @@ pred_clouds_xyzxnynzn/
 train_results/
 trained_models/
 .idea/
+binary_segmentation/trained_models/
+binary_segmentation/saved_models/
