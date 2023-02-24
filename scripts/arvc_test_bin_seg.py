@@ -1,5 +1,8 @@
 import numpy as np
+import pandas
+import csv
 import os
+import socket
 from torch.utils.data import DataLoader
 import torch
 import sklearn.metrics as metrics
@@ -24,7 +27,7 @@ from arvc_Utils.datasetTransforms import np2ply
 def test(device_, dataloader_, model_, loss_fn_):
     # TEST
     model_.eval()
-    f1_lst, pre_lst, rec_lst, loss_lst, conf_m_lst = [], [], [], [], []
+    f1_lst, pre_lst, rec_lst, loss_lst, conf_m_lst, files_lst = [], [], [], [], [], []
     current_clouds = 0
 
     with torch.no_grad():
@@ -36,6 +39,7 @@ def test(device_, dataloader_, model_, loss_fn_):
 
             avg_loss = loss_fn_(pred, label)
             loss_lst.append(avg_loss.item())
+            files_lst.append(filename_)
 
             pred_fix, avg_f1, avg_pre, avg_rec, conf_m = compute_metrics(label, pred)
             f1_lst.append(avg_f1)
@@ -44,7 +48,7 @@ def test(device_, dataloader_, model_, loss_fn_):
             conf_m_lst.append(conf_m)
 
             if SAVE_PRED_CLOUDS:
-                save_pred_as_ply(data, pred_fix, PRED_CLOUDS_DIR, filename_)
+                save_pred_as_ply(data, pred_fix, out_dir, filename_)
 
             current_clouds += data.size(0)
 
@@ -55,7 +59,7 @@ def test(device_, dataloader_, model_, loss_fn_):
                       f'  [Precision score: {avg_pre:.4f}],'
                       f'  [Recall score: {avg_rec:.4f}]')
 
-    return loss_lst, f1_lst, pre_lst, rec_lst, conf_m_lst
+    return loss_lst, f1_lst, pre_lst, rec_lst, conf_m_lst, files_lst
 
 
 def compute_metrics(label_, pred_):
@@ -108,20 +112,53 @@ def save_pred_as_ply(data_, pred_fix_, output_dir_, filename_):
     batch_size = np.size(data_, 0)
     n_points = np.size(data_, 1)
 
-    date = datetime.today().strftime('%y%m%d_%H%M')
-    out_dir = os.path.join(output_dir_, date)
-
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-
-    feat_xyzlabel = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'), ('label', 'u4')]
+    feat_xyzlabel = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'), ('label', 'u4')]
 
     for i in range(batch_size):
-        xyz = data_[i][:, [0,1,2,3,4,5]]
+        xyz = data_[i][:, [0,1,2]]
         actual_pred = pred_fix_[i].reshape(n_points, 1)
         cloud = np.hstack((xyz, actual_pred))
         filename = filename_[0]
         np2ply(cloud, out_dir, filename, features=feat_xyzlabel, binary=True)
+
+
+def get_representative_clouds(f1_score_, precision_, recall_, files_list_):
+
+    print('-'*50)
+    print("Representative Clouds")
+
+    max_f1 = np.max(f1_score_)
+    min_f1 = np.min(f1_score_)
+    max_pre = np.max(precision_)
+    min_pre = np.min(precision_)
+    max_rec = np.max(recall_)
+    min_rec = np.min(recall_)
+
+    max_f1_idx = list(f1_score_).index(max_f1.item())
+    min_f1_idx = list(f1_score_).index(min_f1.item())
+    max_pre_idx = list(precision_).index(max_pre.item())
+    min_pre_idx = list(precision_).index(min_pre.item())
+    max_rec_idx = list(recall_).index(max_rec.item())
+    min_rec_idx = list(recall_).index(min_rec.item())
+
+    print(f'Max f1 cloud: {files_list_[max_f1_idx]}')
+    print(f'Min f1 cloud: {files_list_[min_f1_idx]}')
+    print(f'Max precision cloud: {files_list_[max_pre_idx]}')
+    print(f'Min precision cloud: {files_list_[min_pre_idx]}')
+    print(f'Max recall cloud: {files_list_[max_rec_idx]}')
+    print(f'Min recall cloud: {files_list_[min_rec_idx]}')
+
+def export_results(f1_score_, precision_, recall_, tp_, fp_, tn_, fn_):
+    csv_file = os.path.join(current_project_path, 'results.csv')
+
+    data_list = [MODEL_DIR, FEATURES,"BCELoss",config["train"]["TERMINATION_CRITERIA"],
+                 config["train"]["THRESHOLD_METHOD"], config["train"]["USE_VALID_DATA"],
+                 precision_,recall_,f1_score_,tp_,fp_,tn_,fn_]
+    
+    with open(csv_file, 'a') as file_object:
+        writer = csv.writer(file_object)
+        writer.writerow(data_list)
+        file_object.close()
 
 
 if __name__ == '__main__':
@@ -129,68 +166,90 @@ if __name__ == '__main__':
 
     # --------------------------------------------------------------------------------------------#
     # GET CONFIGURATION PARAMETERS
-    CONFIG_FILE = 'test_configuration.yaml'
-    config_file_abs_path = os.path.join(current_project_path, 'config', CONFIG_FILE)
-    with open(config_file_abs_path) as file:
-        config = yaml.safe_load(file)
+    models_list = ['bs_xyz_bce_vt_loss']
 
-    # DATASET
-    TEST_DIR= config["TEST_DIR"]
-    FEATURES= config["FEATURES"]
-    LABELS= config["LABELS"]
-    NORMALIZE= config["NORMALIZE"]
-    BINARY= config["BINARY"]
-    # THRESHOLD_METHOS POSIBILITIES = cuda:X, cpu
-    DEVICE= config["DEVICE"]
-    BATCH_SIZE= config["BATCH_SIZE"]
-    # MODEL
-    MODEL_PATH= config["MODEL_PATH"]
-    # THRESHOLD= config["THRESHOLD"]
-    OUTPUT_CLASSES= config["OUTPUT_CLASSES"]
-    # LOSS = BCELoss()
-    # RESULTS
-    SAVE_PRED_CLOUDS= config["SAVE_PRED_CLOUDS"]
-    PRED_CLOUDS_DIR= config["PRED_CLOUDS_DIR"]
+    for MODEL_DIR in models_list:
 
-    # --------------------------------------------------------------------------------------------#
-    # INSTANCE DATASET
-    dataset = PLYDataset(root_dir = TEST_DIR,
-                         features= FEATURES,
-                         labels = LABELS,
-                         normalize = NORMALIZE,
-                         binary = BINARY,
-                         transform = None)
+        MODEL_PATH = os.path.join(current_project_path, 'trained_models', MODEL_DIR) 
 
-    # INSTANCE DATALOADER
-    test_dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, drop_last=False)
+        config_file_abs_path = os.path.join(MODEL_PATH, 'config.yaml')
+        with open(config_file_abs_path) as file:
+            config = yaml.safe_load(file)
 
-    # SELECT DEVICE TO WORK WITH
-    device = torch.device(DEVICE)
-    model = PointNetDenseCls(k = OUTPUT_CLASSES, n_feat = len(FEATURES), device=device).to(device)
-    loss_fn = torch.nn.BCELoss()
+        # DATASET
+        TEST_DIR= config["test"]["TEST_DIR"]
+        FEATURES= config["train"]["FEATURES"]
+        LABELS= config["train"]["LABELS"]
+        NORMALIZE= config["train"]["NORMALIZE"]
+        BINARY= config["train"]["BINARY"]
+        DEVICE= config["test"]["DEVICE"]
+        BATCH_SIZE= config["test"]["BATCH_SIZE"]
+        OUTPUT_CLASSES= config["train"]["OUTPUT_CLASSES"]
+        SAVE_PRED_CLOUDS= config["test"]["SAVE_PRED_CLOUDS"]
+        PRED_CLOUDS_DIR= config["test"]["PRED_CLOUDS_DIR"]
 
-    # LOAD TRAINED MODEL
-    model.load_state_dict(torch.load(os.path.join(MODEL_PATH, 'best_model.pth'), map_location=device))
-    threshold = np.load(MODEL_PATH + f'/threshold.npy')
-    THRESHOLD = np.mean(threshold[-1])
+        # --------------------------------------------------------------------------------------------#
+        # CHANGE PATH DEPENDING ON MACHINE
+        machine_name = socket.gethostname()
+        if machine_name == 'arvc-Desktop':
+            TEST_DATA = os.path.join('/media/arvc/data/datasets', TEST_DIR)
+        else:
+            TEST_DATA = os.path.join('/home/arvc/Fran/data/datasets', TEST_DIR)
 
-    print('-'*50)
-    print('TESTING ON: ', device)
-    results = test(device_=device,
-                   dataloader_=test_dataloader,
-                   model_=model,
-                   loss_fn_=loss_fn)
 
-    f1_score = np.mean(np.array(results[1]))
-    precision = np.mean(np.array(results[2]))
-    recall = np.mean(np.array(results[3]))
-    confusion_matrix_list = np.array(results[4])
-    conf_matrix = np.mean(confusion_matrix_list, axis=0)
+        date = datetime.today().strftime('%y%m%d_%H%M')
+        out_dir = os.path.join(PRED_CLOUDS_DIR, date)
 
-    print('\n\n')
-    print(f'Threshold: {THRESHOLD}')
-    print(f'Avg F1_score: {f1_score}')
-    print(f'Avg Precision: {precision}')
-    print(f'Avg Recall: {recall}')
-    print(f'TN: {conf_matrix[0]}, FP: {conf_matrix[1]}, FN: {conf_matrix[2]}, TP: {conf_matrix[3]}')
-    print("Done!")
+        if not os.path.exists(out_dir):
+            os.makedirs(out_dir)
+
+        # --------------------------------------------------------------------------------------------#
+        # INSTANCE DATASET
+        dataset = PLYDataset(root_dir = TEST_DATA,
+                            features= FEATURES,
+                            labels = LABELS,
+                            normalize = NORMALIZE,
+                            binary = BINARY,
+                            compute_weights=False)
+
+        # INSTANCE DATALOADER
+        test_dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, drop_last=False)
+
+        # SELECT DEVICE TO WORK WITH
+        if torch.cuda.is_available():
+            device = torch.device(DEVICE)
+        else:
+            device = torch.device("cpu")
+        model = PointNetDenseCls(k = OUTPUT_CLASSES, n_feat = len(FEATURES), device=device).to(device)
+        loss_fn = torch.nn.BCELoss()
+
+        # LOAD TRAINED MODEL
+        model.load_state_dict(torch.load(os.path.join(MODEL_PATH, 'best_model.pth'), map_location=device))
+        threshold = np.load(MODEL_PATH + f'/threshold.npy')
+        THRESHOLD = np.mean(threshold[-1])
+
+        print('-'*50)
+        print('TESTING ON: ', device)
+        results = test(device_=device,
+                    dataloader_=test_dataloader,
+                    model_=model,
+                    loss_fn_=loss_fn)
+
+        f1_score = np.array(results[1])
+        precision = np.array(results[2])
+        recall = np.array(results[3])
+        confusion_matrix_list = np.array(results[4])
+        conf_matrix = np.mean(confusion_matrix_list, axis=0)
+        tp, fp, tn, fn = conf_matrix[3], conf_matrix[1], conf_matrix[0], conf_matrix[2]
+        files_list = results[5]
+
+        get_representative_clouds(f1_score, precision, recall, files_list)
+        export_results(np.mean(f1_score), np.mean(precision), np.mean(recall),tp,fp,tn,fn)
+
+        print('\n\n')
+        print(f'Threshold: {THRESHOLD}')
+        print(f'Avg F1_score: {np.mean(f1_score)}')
+        print(f'Avg Precision: {np.mean(precision)}')
+        print(f'Avg Recall: {np.mean(recall)}')
+        print(f'TN: {tn}, FP: {fp}, FN: {fn}, TP: {tp}')
+        print("Done!")

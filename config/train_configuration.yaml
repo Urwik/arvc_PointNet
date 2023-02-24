@@ -27,6 +27,4 @@ test:
   TEST_DIR: ARVCTRUSS/test/ply_xyzlabelnormal_ground_filtered_RANSAC_1metro
   DEVICE: cuda:0
   BATCH_SIZE: 1
-  # RESULTS
   SAVE_PRED_CLOUDS: False
-  PRED_CLOUDS_DIR: /home/arvc/PycharmProjects/arvc_PointNet/pred_clouds_xyzxnynzn
