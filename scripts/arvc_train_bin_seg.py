@@ -46,7 +46,7 @@ def train(device_, train_loader_, model_, loss_fn_, optimizer_):
 
         current_clouds += data.size(0)
 
-        if batch % 1 == 0 or data.size(0) < train_loader_.batch_size:  # print every (% X) batches
+        if batch % 10 == 0 or data.size(0) < train_loader_.batch_size:  # print every (% X) batches
             print(f' - [Batch: {current_clouds}/{len(train_loader_.dataset)}],'
                   f' / Train Loss: {avg_train_loss_:.4f}')
 
@@ -170,15 +170,7 @@ def compute_best_threshold(pred_, gt_):
 
 if __name__ == '__main__':
 
-    Files = ['xyz_f1_pr.yaml',
-             'xyzCurv_f1_pr.yaml',
-             'xyzNormals_f1_pr.yaml',
-             'xyz_bceloss_pr_valid.yaml',
-             'xyzCurv_bceloss_pr_valid.yaml',
-             'xyzNormals_bceloss_pr_valid.yaml',
-             'xyz_f1_pr_valid.yaml',
-             'xyzCurv_f1_pr_valid.yaml',
-             'xyzNormals_f1_pr_valid.yaml',]
+    Files = ['train_configuration.yaml']
 
     for configFile in Files:
         start_time = datetime.now()
