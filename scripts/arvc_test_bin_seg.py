@@ -148,6 +148,7 @@ def get_representative_clouds(f1_score_, precision_, recall_, files_list_):
     print(f'Max recall cloud: {files_list_[max_rec_idx]}')
     print(f'Min recall cloud: {files_list_[min_rec_idx]}')
 
+
 def export_results(f1_score_, precision_, recall_, tp_, fp_, tn_, fn_):
     csv_file = os.path.join(current_project_path, 'results.csv')
 
@@ -166,7 +167,8 @@ if __name__ == '__main__':
 
     # --------------------------------------------------------------------------------------------#
     # GET CONFIGURATION PARAMETERS
-    models_list = ['bs_xyz_bce_vt_loss']
+    # models_list = ['bs_xyz_bce_vt_loss']
+    models_list = os.listdir(os.path.join(current_project_path, 'trained_models'))
 
     for MODEL_DIR in models_list:
 
