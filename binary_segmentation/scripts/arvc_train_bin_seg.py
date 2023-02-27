@@ -171,8 +171,8 @@ def compute_best_threshold(pred_, gt_):
 
 if __name__ == '__main__':
 
-    Files = os.listdir(os.path.join(current_model_path, 'config'))
-    # Files = ['train_configuration.yaml']
+    # Files = os.listdir(os.path.join(current_model_path, 'config'))
+    Files = ['config_xyz_0.yaml']
     for configFile in Files:
         start_time = datetime.now()
 
@@ -201,6 +201,10 @@ if __name__ == '__main__':
         TERMINATION_CRITERIA= config["train"]["TERMINATION_CRITERIA"]
         EPOCH_TIMEOUT= config["train"]["EPOCH_TIMEOUT"]
 
+        if "ADD_RANGE" in config["train"]:
+            ADD_RANGE = config["train"]["ADD_RANGE"]
+        else:
+            ADD_RANGE = False
         # --------------------------------------------------------------------------------------------#
         # CHANGE PATH DEPENDING ON MACHINE
         machine_name = socket.gethostname()
@@ -227,7 +231,8 @@ if __name__ == '__main__':
                                    labels=LABELS,
                                    normalize=NORMALIZE,
                                    binary=BINARY,
-                                   compute_weights=False)
+                                   compute_weights=False,
+                                   add_range_= ADD_RANGE)
 
         if USE_VALID_DATA:
             valid_dataset = PLYDataset(root_dir=VALID_DATA,
@@ -235,7 +240,8 @@ if __name__ == '__main__':
                                        labels=LABELS,
                                        normalize=NORMALIZE,
                                        binary=BINARY,
-                                       compute_weights=False)
+                                       compute_weights=False,
+                                       add_range_= ADD_RANGE)
         else:
             # SPLIT VALIDATION AND TRAIN
             train_size = math.floor(len(train_dataset) * TRAIN_SPLIT)
