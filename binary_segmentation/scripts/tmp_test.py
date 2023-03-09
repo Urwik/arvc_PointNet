@@ -8,7 +8,6 @@ import torch
 import sklearn.metrics as metrics
 import sys
 import yaml
-from tqdm import tqdm
 from datetime import datetime
 import warnings
 warnings.filterwarnings('ignore')
@@ -32,7 +31,7 @@ def test(device_, dataloader_, model_, loss_fn_):
     current_clouds = 0
 
     with torch.no_grad():
-        for batch, (data, label, filename_) in enumerate(tqdm(dataloader_)):
+        for batch, (data, label, filename_) in enumerate(dataloader_):
             data, label = data.to(device_, dtype=torch.float32), label.to(device_, dtype=torch.float32)
             pred, m3x3, m64x64 = model_(data.transpose(1, 2))
             m = torch.nn.Sigmoid()
@@ -51,14 +50,14 @@ def test(device_, dataloader_, model_, loss_fn_):
             if SAVE_PRED_CLOUDS:
                 save_pred_as_ply(data, pred_fix, PRED_CLOUDS_DIR, filename_)
 
-            # current_clouds += data.size(0)
-            #
-            # if batch % 1 == 0 or data.size()[0] < dataloader_.batch_size:  # print every 10 batches
-            #     print(f'  [Batch: {current_clouds}/{len(dataloader_.dataset)}],'
-            #           f'  [File: {str(filename_)}],'
-            #           f'  [F1 score: {avg_f1:.4f}],'
-            #           f'  [Precision score: {avg_pre:.4f}],'
-            #           f'  [Recall score: {avg_rec:.4f}]')
+            current_clouds += data.size(0)
+
+            if batch % 1 == 0 or data.size()[0] < dataloader_.batch_size:  # print every 10 batches
+                print(f'  [Batch: {current_clouds}/{len(dataloader_.dataset)}],'
+                      f'  [File: {str(filename_)}],'
+                      f'  [F1 score: {avg_f1:.4f}],'
+                      f'  [Precision score: {avg_pre:.4f}],'
+                      f'  [Recall score: {avg_rec:.4f}]')
 
     return loss_lst, f1_lst, pre_lst, rec_lst, conf_m_lst, files_lst
 
@@ -142,19 +141,6 @@ def get_representative_clouds(f1_score_, precision_, recall_, files_list_):
     max_rec_idx = list(recall_).index(max_rec.item())
     min_rec_idx = list(recall_).index(min_rec.item())
 
-    clouds = {
-        'Max_F1':  [str(files_list_[max_f1_idx][0]) + '.ply'],
-        'Min_F1':  [str(files_list_[min_f1_idx][0]) + '.ply'],
-        'Max_Pre': [str(files_list_[max_pre_idx][0]) + '.ply'],
-        'Min_Pre': [str(files_list_[min_pre_idx][0]) + '.ply'],
-        'Max_Rec': [str(files_list_[max_rec_idx][0]) + '.ply'],
-        'Min_Rec': [str(files_list_[min_rec_idx][0]) + '.ply']
-    }
-
-    df = pd.DataFrame(clouds)
-    csv_path = os.path.join(MODEL_PATH, 'representative_clouds.csv')
-    df.to_csv(csv_path, index=False, sep=',')
-
     print(f'Max f1 cloud: {str(files_list_[max_f1_idx])}')
     print(f'Min f1 cloud: {str(files_list_[min_f1_idx])}')
     print(f'Max precision cloud: {str(files_list_[max_pre_idx])}')
@@ -198,7 +184,7 @@ if __name__ == '__main__':
     for exported_model in exported_models:
         models_list.remove(exported_model)
 
-    # models_list = ['2302241531']
+    models_list = ['2302241531']
 
     for MODEL_DIR in models_list:
         print(f'Testing Model: {MODEL_DIR}')
@@ -238,12 +224,19 @@ if __name__ == '__main__':
         # --------------------------------------------------------------------------------------------#
         # INSTANCE DATASET
         dataset = PLYDataset(root_dir = TEST_DATA,
-                             features= FEATURES,
-                             labels = LABELS,
-                             normalize = NORMALIZE,
-                             binary = BINARY,
-                             compute_weights=False,
-                             add_range_= ADD_RANGE)
+                            features= FEATURES,
+                            labels = LABELS,
+                            normalize = NORMALIZE,
+                            binary = BINARY,
+                            compute_weights=False,
+                            add_range_= ADD_RANGE)
+
+        if "ADD_RANGE" in config["train"]:
+            ADD_RANGE = config["train"]["ADD_RANGE"]
+            ADD_LEN = 1
+        else:
+            ADD_RANGE = False
+            ADD_LEN = 0
 
         # INSTANCE DATALOADER
         test_dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, drop_last=False)
@@ -260,11 +253,12 @@ if __name__ == '__main__':
 
         loss_fn = torch.nn.BCELoss()
 
-        if SAVE_PRED_CLOUDS:
-            # MAKE DIR WHERE TO SAVE THE CLOUDS
-            PRED_CLOUDS_DIR = os.path.join(MODEL_PATH, "pred_clouds")
-            if not os.path.exists(PRED_CLOUDS_DIR):
-                os.makedirs(PRED_CLOUDS_DIR)
+
+
+        # MAKE DIR WHERE TO SAVE THE CLOUDS
+        PRED_CLOUDS_DIR = os.path.join(MODEL_PATH, "pred_clouds")
+        if not os.path.exists(PRED_CLOUDS_DIR):
+            os.makedirs(PRED_CLOUDS_DIR)
 
         # LOAD TRAINED MODEL
         model.load_state_dict(torch.load(os.path.join(MODEL_PATH, 'best_model.pth'), map_location=device))
@@ -274,9 +268,9 @@ if __name__ == '__main__':
         print('-'*50)
         print('TESTING ON: ', device)
         results = test(device_=device,
-                       dataloader_=test_dataloader,
-                       model_=model,
-                       loss_fn_=loss_fn)
+                    dataloader_=test_dataloader,
+                    model_=model,
+                    loss_fn_=loss_fn)
 
         f1_score = np.array(results[1])
         precision = np.array(results[2])

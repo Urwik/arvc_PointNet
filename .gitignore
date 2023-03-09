@@ -1,9 +1,7 @@
 venv/
-model_save/
-pred_clouds/
-pred_clouds_xyzxnynzn/
-train_results/
-trained_models/
+*/saved_models/
 .idea/
-binary_segmentation/trained_models/
-binary_segmentation/saved_models/
+__pycache__/
+config/*
+!config/config.yaml
+results*

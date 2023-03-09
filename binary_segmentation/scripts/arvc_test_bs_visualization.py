@@ -1,5 +1,5 @@
 import numpy as np
-import pandas
+import pandas as pd
 import csv
 import os
 import socket
@@ -13,14 +13,14 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # IMPORTS PATH TO THE PROJECT
-current_project_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-pycharm_projects_path = os.path.dirname(current_project_path)
+current_model_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+pycharm_projects_path = os.path.dirname(os.path.dirname(current_model_path))
 # IMPORTS PATH TO OTHER PYCHARM PROJECTS
-sys.path.append(current_project_path)
+sys.path.append(current_model_path)
 sys.path.append(pycharm_projects_path)
 
-from models.arvc_PointNet_bin_seg import PointNetDenseCls
-from arvc_Utils.Datasets import PLYDataset
+from model.arvc_PointNet_bs import PointNetDenseCls
+from arvc_Utils.Datasets import vis_Test_Dataset
 from arvc_Utils.datasetTransforms import np2ply
 
 
@@ -48,7 +48,7 @@ def test(device_, dataloader_, model_, loss_fn_):
             conf_m_lst.append(conf_m)
 
             if SAVE_PRED_CLOUDS:
-                save_pred_as_ply(data, pred_fix, out_dir, filename_)
+                save_pred_as_ply(data, pred_fix, PRED_CLOUDS_DIR, filename_)
 
             current_clouds += data.size(0)
 
@@ -71,7 +71,7 @@ def compute_metrics(label_, pred_):
 
     f1_score_list = []
     precision_list = []
-    recall_list =  []
+    recall_list = []
     tn_list = []
     fp_list = []
     fn_list = []
@@ -82,19 +82,19 @@ def compute_metrics(label_, pred_):
         tmp_labl = label[i]
         tmp_pred = pred[i]
 
-        f1_score = metrics.f1_score(tmp_labl, tmp_pred, average='binary')
-        precision = metrics.precision_score(tmp_labl, tmp_pred, average='binary')
-        recall = metrics.recall_score(tmp_labl, tmp_pred, average='binary')
-        tn, fp, fn, tp = metrics.confusion_matrix(tmp_labl, tmp_pred, labels=[0,1]).ravel()
+        f1_score_ = metrics.f1_score(tmp_labl, tmp_pred, average='binary')
+        precision_ = metrics.precision_score(tmp_labl, tmp_pred, average='binary')
+        recall_ = metrics.recall_score(tmp_labl, tmp_pred, average='binary')
+        tn_, fp_, fn_, tp_ = metrics.confusion_matrix(tmp_labl, tmp_pred, labels=[0,1]).ravel()
 
-        tn_list.append(tn)
-        fp_list.append(fp)
-        fn_list.append(fn)
-        tp_list.append(tp)
+        tn_list.append(tn_)
+        fp_list.append(fp_)
+        fn_list.append(fn_)
+        tp_list.append(tp_)
 
-        f1_score_list.append(f1_score)
-        precision_list.append(precision)
-        recall_list.append(recall)
+        f1_score_list.append(f1_score_)
+        precision_list.append(precision_)
+        recall_list.append(recall_)
 
     avg_f1_score = np.mean(np.array(f1_score_list))
     avg_precision = np.mean(np.array(precision_list))
@@ -119,67 +119,39 @@ def save_pred_as_ply(data_, pred_fix_, output_dir_, filename_):
         actual_pred = pred_fix_[i].reshape(n_points, 1)
         cloud = np.hstack((xyz, actual_pred))
         filename = filename_[0]
-        np2ply(cloud, out_dir, filename, features=feat_xyzlabel, binary=True)
+        np2ply(cloud, output_dir_, filename, features=feat_xyzlabel, binary=True)
 
 
-def get_representative_clouds(f1_score_, precision_, recall_, files_list_):
+def get_extend_clouds():
+    csv_file = os.path.join(MODEL_PATH, 'representative_clouds.csv')
+    df = pd.read_csv(csv_file)
+    extended_clouds_ = df.iloc[0].tolist()
+    extended_clouds_ = np.unique(extended_clouds_).tolist()
 
-    print('-'*50)
-    print("Representative Clouds")
-
-    max_f1 = np.max(f1_score_)
-    min_f1 = np.min(f1_score_)
-    max_pre = np.max(precision_)
-    min_pre = np.min(precision_)
-    max_rec = np.max(recall_)
-    min_rec = np.min(recall_)
-
-    max_f1_idx = list(f1_score_).index(max_f1.item())
-    min_f1_idx = list(f1_score_).index(min_f1.item())
-    max_pre_idx = list(precision_).index(max_pre.item())
-    min_pre_idx = list(precision_).index(min_pre.item())
-    max_rec_idx = list(recall_).index(max_rec.item())
-    min_rec_idx = list(recall_).index(min_rec.item())
-
-    print(f'Max f1 cloud: {files_list_[max_f1_idx]}')
-    print(f'Min f1 cloud: {files_list_[min_f1_idx]}')
-    print(f'Max precision cloud: {files_list_[max_pre_idx]}')
-    print(f'Min precision cloud: {files_list_[min_pre_idx]}')
-    print(f'Max recall cloud: {files_list_[max_rec_idx]}')
-    print(f'Min recall cloud: {files_list_[min_rec_idx]}')
-
-
-def export_results(f1_score_, precision_, recall_, tp_, fp_, tn_, fn_):
-    csv_file = os.path.join(current_project_path, 'results.csv')
-
-    data_list = [MODEL_DIR, FEATURES,"BCELoss",config["train"]["TERMINATION_CRITERIA"],
-                 config["train"]["THRESHOLD_METHOD"], config["train"]["USE_VALID_DATA"],
-                 precision_,recall_,f1_score_,tp_,fp_,tn_,fn_]
-    
-    with open(csv_file, 'a') as file_object:
-        writer = csv.writer(file_object)
-        writer.writerow(data_list)
-        file_object.close()
+    return extended_clouds_
 
 
 if __name__ == '__main__':
     start_time = datetime.now()
 
     # --------------------------------------------------------------------------------------------#
-    # GET CONFIGURATION PARAMETERS
-    # models_list = ['bs_xyz_bce_vt_loss']
-    models_list = os.listdir(os.path.join(current_project_path, 'trained_models'))
+    # REMOVE MODELS THAT ARE ALREADY EXPORTED
+    models_list = os.listdir(os.path.join(current_model_path, 'saved_models'))
+
+    # models_list = ['2302241531']
 
     for MODEL_DIR in models_list:
+        print(f'-'*50)
+        print(f'Testing Model: {MODEL_DIR}')
 
-        MODEL_PATH = os.path.join(current_project_path, 'trained_models', MODEL_DIR) 
+        MODEL_PATH = os.path.join(current_model_path, 'saved_models', MODEL_DIR)
 
         config_file_abs_path = os.path.join(MODEL_PATH, 'config.yaml')
         with open(config_file_abs_path) as file:
             config = yaml.safe_load(file)
 
         # DATASET
-        TEST_DIR= config["test"]["TEST_DIR"]
+        TEST_DIR= "ARVCTRUSS/test/ply_xyzlabelnormal" #config["test"]["TEST_DIR"]
         FEATURES= config["train"]["FEATURES"]
         LABELS= config["train"]["LABELS"]
         NORMALIZE= config["train"]["NORMALIZE"]
@@ -187,32 +159,37 @@ if __name__ == '__main__':
         DEVICE= config["test"]["DEVICE"]
         BATCH_SIZE= config["test"]["BATCH_SIZE"]
         OUTPUT_CLASSES= config["train"]["OUTPUT_CLASSES"]
-        SAVE_PRED_CLOUDS= config["test"]["SAVE_PRED_CLOUDS"]
-        PRED_CLOUDS_DIR= config["test"]["PRED_CLOUDS_DIR"]
+        SAVE_PRED_CLOUDS= True # config["test"]["SAVE_PRED_CLOUDS"]
 
+        if "ADD_RANGE" in config["train"]:
+            ADD_RANGE = config["train"]["ADD_RANGE"]
+            ADD_LEN = 1
+        else:
+            ADD_RANGE = False
+            ADD_LEN = 0
+        # ------------------------
         # --------------------------------------------------------------------------------------------#
         # CHANGE PATH DEPENDING ON MACHINE
         machine_name = socket.gethostname()
         if machine_name == 'arvc-Desktop':
             TEST_DATA = os.path.join('/media/arvc/data/datasets', TEST_DIR)
+            VIS_DATA = os.path.join('/media/arvc/data/datasets', 'ARVCTRUSS/test_visualization/ply_xyzlabelnormal')
         else:
             TEST_DATA = os.path.join('/home/arvc/Fran/data/datasets', TEST_DIR)
+            VIS_DATA = os.path.join('/home/arvc/Fran/data/datasets', 'ARVCTRUSS/test_visualization/ply_xyzlabelnormal')
 
-
-        date = datetime.today().strftime('%y%m%d_%H%M')
-        out_dir = os.path.join(PRED_CLOUDS_DIR, date)
-
-        if not os.path.exists(out_dir):
-            os.makedirs(out_dir)
-
+        extended_clouds = get_extend_clouds()
         # --------------------------------------------------------------------------------------------#
         # INSTANCE DATASET
-        dataset = PLYDataset(root_dir = TEST_DATA,
-                            features= FEATURES,
-                            labels = LABELS,
-                            normalize = NORMALIZE,
-                            binary = BINARY,
-                            compute_weights=False)
+        dataset = vis_Test_Dataset(root_dir = TEST_DATA,
+                                   common_clouds_dir = VIS_DATA,
+                                   extend_clouds = extended_clouds,
+                                   features= FEATURES,
+                                   labels = LABELS,
+                                   normalize = NORMALIZE,
+                                   binary = BINARY,
+                                   compute_weights=False,
+                                   add_range_= ADD_RANGE)
 
         # INSTANCE DATALOADER
         test_dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, drop_last=False)
@@ -222,8 +199,17 @@ if __name__ == '__main__':
             device = torch.device(DEVICE)
         else:
             device = torch.device("cpu")
-        model = PointNetDenseCls(k = OUTPUT_CLASSES, n_feat = len(FEATURES), device=device).to(device)
+
+        model = PointNetDenseCls(k=OUTPUT_CLASSES,
+                                 n_feat=len(FEATURES) + ADD_LEN,
+                                 device=device).to(device)
         loss_fn = torch.nn.BCELoss()
+
+        # MAKE DIR WHERE TO SAVE THE CLOUDS
+        if SAVE_PRED_CLOUDS:
+            PRED_CLOUDS_DIR = os.path.join(MODEL_PATH, "vis_clouds")
+            if not os.path.exists(PRED_CLOUDS_DIR):
+                os.makedirs(PRED_CLOUDS_DIR)
 
         # LOAD TRAINED MODEL
         model.load_state_dict(torch.load(os.path.join(MODEL_PATH, 'best_model.pth'), map_location=device))
@@ -233,25 +219,25 @@ if __name__ == '__main__':
         print('-'*50)
         print('TESTING ON: ', device)
         results = test(device_=device,
-                    dataloader_=test_dataloader,
-                    model_=model,
-                    loss_fn_=loss_fn)
+                       dataloader_=test_dataloader,
+                       model_=model,
+                       loss_fn_=loss_fn)
 
         f1_score = np.array(results[1])
         precision = np.array(results[2])
         recall = np.array(results[3])
         confusion_matrix_list = np.array(results[4])
-        conf_matrix = np.mean(confusion_matrix_list, axis=0)
-        tp, fp, tn, fn = conf_matrix[3], conf_matrix[1], conf_matrix[0], conf_matrix[2]
+        mean_cf = np.mean(confusion_matrix_list, axis=0)
+        median_cf = np.median(confusion_matrix_list, axis=0)
+        mean_tp, mean_fp, mean_tn, mean_fn = mean_cf[3], mean_cf[1], mean_cf[0], mean_cf[2]
+        med_tp, med_fp, med_tn, med_fn = median_cf[3], median_cf[1], median_cf[0], median_cf[2]
         files_list = results[5]
-
-        get_representative_clouds(f1_score, precision, recall, files_list)
-        export_results(np.mean(f1_score), np.mean(precision), np.mean(recall),tp,fp,tn,fn)
 
         print('\n\n')
         print(f'Threshold: {THRESHOLD}')
-        print(f'Avg F1_score: {np.mean(f1_score)}')
-        print(f'Avg Precision: {np.mean(precision)}')
-        print(f'Avg Recall: {np.mean(recall)}')
-        print(f'TN: {tn}, FP: {fp}, FN: {fn}, TP: {tp}')
+        print(f'[Mean F1_score:  {np.mean(f1_score)}] [Median F1_score:  {np.median(f1_score)}]')
+        print(f'[Mean Precision: {np.mean(precision)}] [Median Precision: {np.median(precision)}]')
+        print(f'[Mean Recall:    {np.mean(recall)}] [Median Recall:    {np.median(recall)}]')
+        print(f'[Mean TP: {mean_tp}, FP: {mean_fp}, TN: {mean_tn}, FN: {mean_fn}] '
+              f'[Median TP: {med_tp}, FP: {med_fp}, TN: {med_tn}, FN: {med_fn}]')
         print("Done!")

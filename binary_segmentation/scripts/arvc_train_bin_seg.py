@@ -1,4 +1,5 @@
 import numpy as np
+import random
 import os
 import shutil
 import math
@@ -203,8 +204,10 @@ if __name__ == '__main__':
 
         if "ADD_RANGE" in config["train"]:
             ADD_RANGE = config["train"]["ADD_RANGE"]
+            ADD_LEN = 1
         else:
             ADD_RANGE = False
+            ADD_LEN = 0
         # --------------------------------------------------------------------------------------------#
         # CHANGE PATH DEPENDING ON MACHINE
         machine_name = socket.gethostname()
@@ -217,7 +220,7 @@ if __name__ == '__main__':
         # --------------------------------------------------------------------------------------------#
         # CREATE A FOLDER TO SAVE TRAINING
         OUT_DIR = os.path.join(current_model_path, OUTPUT_DIR)
-        folder_name = datetime.today().strftime('%y%m%d%H%M')
+        folder_name = datetime.today().strftime('%y%m%d%H%M%S')
         OUT_DIR = os.path.join(OUT_DIR, folder_name)
         if not os.path.exists(OUT_DIR):
             os.makedirs(OUT_DIR)
@@ -263,7 +266,7 @@ if __name__ == '__main__':
             device = torch.device("cpu")
 
         model = PointNetDenseCls(k=OUTPUT_CLASSES,
-                                 n_feat=len(FEATURES),
+                                 n_feat=len(FEATURES) + ADD_LEN,
                                  device=device).to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)
