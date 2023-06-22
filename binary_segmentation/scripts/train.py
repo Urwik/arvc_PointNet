@@ -206,13 +206,13 @@ if __name__ == '__main__':
             print(f"EPOCH: {epoch} {'-' * 50}")
             epoch_start_time = datetime.now()
 
-            train_results = train(_device=device, _data_loader=train_dataloader, _model_=model, _loss_fn=loss_fn, _optimizer=optimizer)
+            train_results = train(_device=device, data_loader=train_dataloader,_model_=model, loss_fn=loss_fn,_optimizer=optimizer)
 
-            valid_results = valid(_device=device, _data_loader=valid_dataloader, _model_=model, _loss_fn=loss_fn, _optimizer=optimizer)
+            valid_results = valid(_device=device,_data_loader=valid_dataloader,_model_=model, loss_fn=loss_fn,_optimizer=optimizer)
 
             # GET RESULTS
             train_loss.append(train_results)
-            
+
             valid_loss.append(valid_results[0])
             f1.append(valid_results[1])
             precision.append(valid_results[2])
