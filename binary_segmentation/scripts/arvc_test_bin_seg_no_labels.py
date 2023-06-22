@@ -28,8 +28,7 @@ from arvc_Utils.datasetTransforms import np2ply
 def test(device_, dataloader_, model_, loss_fn_):
     # TEST
     model_.eval()
-    f1_lst, pre_lst, rec_lst, loss_lst, conf_m_lst, files_lst = [], [], [], [], [], []
-    current_clouds = 0
+    files_lst = [], [], [], [], [], []
 
     with torch.no_grad():
         for batch, (data, label, filename_) in enumerate(tqdm(dataloader_)):

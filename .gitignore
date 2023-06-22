@@ -5,3 +5,4 @@ venv/
 */config/*
 !config/config.yaml
 results*
+main.py
