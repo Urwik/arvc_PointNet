@@ -63,9 +63,8 @@ class Trainer():
         self.set_optimizer()
 
 
+
     def make_outputdir(self):
-        # --------------------------------------------------------------------------------------------#
-        # CREATE A FOLDER TO SAVE TRAINING
         OUT_DIR = os.path.join(current_model_path, self.configuration.train.output_dir.__str__())
 
         folder_name = datetime.today().strftime('%y%m%d%H%M%S')
