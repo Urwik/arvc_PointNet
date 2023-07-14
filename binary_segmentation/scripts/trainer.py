@@ -9,7 +9,6 @@ import numpy as np
 import sklearn.metrics as metrics
 
 import torch
-from torchsummary import summary
 from torch.utils.data import DataLoader
 
 import yaml
@@ -46,6 +45,8 @@ class Trainer():
         self.last_value: float
         self.activation_fn = self.configuration.train.activation_fn
         self.device = self.configuration.train.device
+        self.valid_results = Results()
+        self.global_valid_results = Results()
 
         self.epoch_timeout_count = 0
 
@@ -53,7 +54,6 @@ class Trainer():
 
 
     def setup(self):
-
         self.make_outputdir()
         self.save_config_file()
         self.instantiate_dataset()
@@ -107,6 +107,8 @@ class Trainer():
                                    _add_range=self.configuration.train.add_range,   
                                    _compute_weights=self.configuration.train.compute_weights)
 
+        self.train_dataset.dataset_size = 40
+
         if self.configuration.train.use_valid_data:
             self.valid_dataset = PLYDataset(_mode='train',
                                        _root_dir=self.valid_abs_path,
@@ -156,35 +158,36 @@ class Trainer():
 
     def set_optimizer(self):
         if self.configuration.train.optimizer == "adam":
-            return torch.optim.Adam(self.model.parameters(), lr=self.configuration.train.init_lr)
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.configuration.train.init_lr)
         elif self.configuration.train.optimizer == "sgd":
-            return torch.optim.SGD(self.model.parameters(), lr=self.configuration.train.init_lr)
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=self.configuration.train.init_lr)
         else:
             print("WRONG OPTIMIZER")
             exit()
 
 
+    def set_scheduler(self):
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=4, gamma=0.9)
 
-    def save_results(self):
+
+    def save_global_results(self):
         # SAVE RESULTS
-        np.save(self.output_dir + f'/train_loss', np.array(train_loss))
-        np.save(self.output_dir + f'/valid_loss', np.array(valid_loss))
-        np.save(self.output_dir + f'/f1_score', np.array(f1))
-        np.save(self.output_dir + f'/precision', np.array(precision))
-        np.save(self.output_dir + f'/recall', np.array(recall))
-        np.save(self.output_dir + f'/conf_matrix', np.array(conf_matrix))
-        np.save(self.output_dir + f'/threshold', np.array(threshold))
+        np.save(self.output_dir + f'/valid_loss', np.array(self.global_valid_results.loss))
+        np.save(self.output_dir + f'/f1_score', np.array(self.global_valid_results.f1))
+        np.save(self.output_dir + f'/precision', np.array(self.global_valid_results.precision))
+        np.save(self.output_dir + f'/recall', np.array(self.global_valid_results.recall))
+        np.save(self.output_dir + f'/conf_matrix', np.array(self.global_valid_results.conf_matrix))
+        np.save(self.output_dir + f'/threshold', np.array(self.global_valid_results.threshold))
 
     
-    def append_results(self):
-        # APPEND RESULTS
-        train_loss.append(np.mean(train_results[0]))
-        valid_loss.append(np.mean(valid_results[0]))
-        f1.append(np.mean(valid_results[1]))
-        precision.append(np.mean(valid_results[2]))
-        recall.append(np.mean(valid_results[3]))
-        conf_matrix.append(np.mean(valid_results[4]))
-        threshold.append(np.mean(valid_results[5]))
+
+    def add_to_global_results(self):
+        self.global_valid_results.loss.append(self.valid_results.loss)
+        self.global_valid_results.f1.append(self.valid_results.f1)
+        self.global_valid_results.precision.append(self.valid_results.precision)
+        self.global_valid_results.recall.append(self.valid_results.recall)
+        self.global_valid_results.conf_matrix.append(self.valid_results.conf_matrix)
+        self.global_valid_results.threshold.append(self.valid_results.threshold)
 
 
     def termination_criteria(self):
@@ -197,7 +200,7 @@ class Trainer():
     def improved_results(self):
         # LOSS
         if self.configuration.train.termination_criteria == "loss":
-            self.last_value = np.mean(valid_results[0])
+            self.last_value = np.mean(self.valid_results.loss).__float__()
 
             if self.last_value < self.best_value:
                 return True
@@ -206,7 +209,7 @@ class Trainer():
 
         # PRECISION    
         elif self.configuration.train.termination_criteria == "precision":
-            self.last_value = np.mean(valid_results[2])
+            self.last_value = np.mean(self.valid_results.precision).__float__()
             
             if self.last_value > self.best_value:
                 return True
@@ -215,7 +218,7 @@ class Trainer():
 
         # F1 SCORE    
         elif self.configuration.train.termination_criteria == "f1_score":
-            self.last_value = np.mean(valid_results[1])
+            self.last_value = np.mean(self.valid_results.f1).__float__()
             
             if self.last_value > self.best_value:
                 return True
@@ -245,69 +248,78 @@ class Trainer():
         
         self.model.train()
 
-        for batch, (_, data, label, _) in enumerate(self.train_dataloader):
-            self.set_optimizer().zero_grad()
+        for batch, (_, features, label, _) in enumerate(self.train_dataloader):
+            self.optimizer.zero_grad()
 
-            data = data.to(self.device, dtype=torch.float32)
+            features = features.to(self.device, dtype=torch.float32)
             label = label.to(self.device, dtype=torch.float32)
            
             # Evaluate model
-            pred, m3x3, m64x64 = self.model(data.transpose(1, 2))
+            pred, m3x3, m64x64 = self.model(features.transpose(1, 2))
 
             pred = self.activation_fn(pred)
 
             # Calulate loss and backpropagate
             avg_train_loss_ = self.configuration.train.loss_fn(pred, label)
             avg_train_loss_.backward()
-            self.set_optimizer().step()
+            self.optimizer.step()
 
             # Print training progress
-            current_clouds += data.size(0)
-            if batch % 10 == 0 or data.size(0) < self.train_dataloader.batch_size:  # print every (% X) batches
+            current_clouds += features.size(0)
+            if batch % 1 == 0 or features.size(0) < self.train_dataloader.batch_size:  # print every (% X) batches
                 print(f' - [Batch: {current_clouds}/{len(self.train_dataloader.dataset)}],'
                     f' / Train Loss: {avg_train_loss_:.4f}')
 
 
     def valid(self):
         print('-'*50 + '\n' + 'VALIDATION' + '\n' + '-'*50)
+        self.valid_results = Results()
         current_clouds = 0
 
         self.model.eval()
-
-        f1_lst, pre_lst, rec_lst, loss_lst, conf_m_lst, trshld_lst = [], [], [], [], [], []
-
         with torch.no_grad():
-            for batch, (_, data, label, _) in enumerate(self.valid_dataloader):
-                data = data.to(self.device, dtype=torch.float32)
+            for batch, (_, features, label, _) in enumerate(self.valid_dataloader):
+                features = features.to(self.device, dtype=torch.float32)
                 label = label.to(self.device, dtype=torch.float32)
-                
-                pred, m3x3, m64x64 = self.model(data.transpose(1, 2))
+
+                pred, m3x3, m64x64 = self.model(features.transpose(1, 2))
 
                 pred = self.activation_fn(pred)
 
                 avg_loss = self.configuration.train.loss_fn(pred, label)
-                loss_lst.append(avg_loss.item())
+                self.valid_results.loss.append(avg_loss.item())
 
                 trshld, pred_fix, avg_f1, avg_pre, avg_rec, conf_m = validation_metrics(label, pred)
 
+                self.valid_results.threshold.append(trshld)
+                self.valid_results.f1.append(avg_f1)
+                self.valid_results.precision.append(avg_pre)
+                self.valid_results.recall.append(avg_rec)
+                self.valid_results.conf_matrix.append(conf_m)
+                self.valid_results.pred_fix.append(pred_fix)
 
-                trshld_lst.append(trshld)
-                f1_lst.append(avg_f1)
-                pre_lst.append(avg_pre)
-                rec_lst.append(avg_rec)
-                conf_m_lst.append(conf_m)
+                current_clouds += features.size(0)
 
-                current_clouds += data.size(0)
-
-                if batch % 10 == 0 or data.size()[0] < self.valid_dataloader.batch_size:  # print every 10 batches
+                if batch % 10 == 0 or features.size()[0] < self.valid_dataloader.batch_size:  # print every 10 batches
                     print(f'[Batch: {current_clouds}/{len(self.valid_dataloader.dataset)}]'
                         f'  [Avg Loss: {avg_loss:.4f}]'
                         f'  [Avg F1 score: {avg_f1:.4f}]'
                         f'  [Avg Precision score: {avg_pre:.4f}]'
                         f'  [Avg Recall score: {avg_rec:.4f}]')
 
-        return loss_lst, f1_lst, pre_lst, rec_lst, conf_m_lst, trshld_lst
+        self.add_to_global_results()
 
+    def get_learning_rate(self):
+        for param_group in self.optimizer.param_groups:
+            return param_group['lr']
+
+
+    def update_learning_rate(self):
+        prev_lr = self.get_learning_rate()
+        for g in self.optimizer.param_groups:
+            g['lr'] = ( prev_lr / 10)
+
+        # self.scheduler.step()
 
 
 class Results:
@@ -316,21 +328,10 @@ class Results:
         self.precision = []
         self.recall = []
         self.conf_matrix = []
-        self.train_loss = []
-        self.valid_loss = []
+        self.loss = []
         self.threshold = []
+        self.pred_fix = []
 
-    def add_train(self, results):
-        self.f1.append(results[0])
-        self.precision.append(results[1])
-        self.recall.append(results[2])
-        self.conf_matrix.append(results[3])
-        self.train_loss.append(results[4])
-        self.valid_loss.append(results[5])
-        self.threshold.append(results[6])
-
-    def add_valid(self, results):
-        print(results)
 
 
 
@@ -366,20 +367,23 @@ if __name__ == '__main__':
             print(f"EPOCH: {epoch} {'-' * 50}")
             epoch_start_time = datetime.now()
 
-            # update_lr(trainer.optimizer, epoch, config.train.lr_decay, config.train.init_lr)
 
-            train_results = trainer.train() 
-            valid_results = trainer.valid()
+            trainer.train() 
+            trainer.valid()
+            trainer.update_saved_model()
+            
+            if trainer.termination_criteria():
+                break
 
-            global_results.add_train(train_results)
-            global_results.add_valid(valid_results)
-
+            # print(f'Actual LR: {trainer.get_learning_rate()}')
+            # trainer.update_learning_rate()
 
             print('-'*50 + '\n' + 'DURATION:' + '\n' + '-'*50)
             epoch_end_time = datetime.now()
             print('Epoch Duration: {}'.format(epoch_end_time-epoch_start_time))
 
 
+        trainer.save_global_results()
         training_end_time = datetime.now()
         print('Total Training Duration: {}'.format(training_end_time-training_start_time))
         print("Training Done!")
