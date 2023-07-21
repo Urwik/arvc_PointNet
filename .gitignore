@@ -2,6 +2,7 @@ venv/
 saved_models/
 model_save/
 trained_models/
+multi_segmentation/
 .idea/
 __pycache__/
 config/
