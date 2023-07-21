@@ -31,6 +31,7 @@ from arvc_Utils.Datasets import PLYDataset
 from arvc_Utils.Metrics import validation_metrics
 from arvc_Utils.Config import Config as cfg
 
+from arvc_Utils.Utils import bcolors
 # ----------------------------------------------------------------------------------- #
 
 
@@ -61,7 +62,7 @@ class Trainer():
         self.set_device()
         self.set_model()
         self.set_optimizer()
-
+        self.set_scheduler()
 
 
     def make_outputdir(self):
@@ -167,7 +168,14 @@ class Trainer():
 
 
     def set_scheduler(self):
-        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=4, gamma=0.9)
+        if self.configuration.train.lr_scheduler == "step":
+            self.lr_scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=2, gamma=0.1, verbose=False)
+
+        elif self.configuration.train.lr_scheduler == "plateau":
+            self.lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.1, patience=5, threshold=0.0001, threshold_mode='rel', cooldown=0, min_lr=0, eps=1e-08, verbose=False)
+        
+        else:   
+            self.lr_scheduler = None
 
 
     def save_global_results(self):
@@ -182,12 +190,21 @@ class Trainer():
     
 
     def add_to_global_results(self):
-        self.global_valid_results.loss.append(self.valid_results.loss)
-        self.global_valid_results.f1.append(self.valid_results.f1)
-        self.global_valid_results.precision.append(self.valid_results.precision)
-        self.global_valid_results.recall.append(self.valid_results.recall)
-        self.global_valid_results.conf_matrix.append(self.valid_results.conf_matrix)
-        self.global_valid_results.threshold.append(self.valid_results.threshold)
+        self.global_valid_results.loss.append(self.valid_avg_loss)
+        self.global_valid_results.f1.append(self.valid_avg_f1)
+        self.global_valid_results.precision.append(self.valid_avg_precision)
+        self.global_valid_results.recall.append(self.valid_avg_recall)
+        self.global_valid_results.conf_matrix.append(self.valid_avg_cm)
+        self.global_valid_results.threshold.append(self.valid_avg_threshold)
+
+
+    def compute_mean_valid_results(self):
+        self.valid_avg_loss = float(np.mean(self.valid_results.loss))
+        self.valid_avg_f1 = float(np.mean(self.valid_results.f1))
+        self.valid_avg_precision = float(np.mean(self.valid_results.precision))
+        self.valid_avg_recall = float(np.mean(self.valid_results.recall))
+        self.valid_avg_threshold = float(np.mean(self.valid_results.threshold))
+        self.valid_avg_cm = np.mean(self.valid_results.conf_matrix, axis=0)
 
 
     def termination_criteria(self):
@@ -200,7 +217,7 @@ class Trainer():
     def improved_results(self):
         # LOSS
         if self.configuration.train.termination_criteria == "loss":
-            self.last_value = np.mean(self.valid_results.loss).__float__()
+            self.last_value = self.valid_avg_loss
 
             if self.last_value < self.best_value:
                 return True
@@ -209,7 +226,7 @@ class Trainer():
 
         # PRECISION    
         elif self.configuration.train.termination_criteria == "precision":
-            self.last_value = np.mean(self.valid_results.precision).__float__()
+            self.last_value = self.valid_avg_precision
             
             if self.last_value > self.best_value:
                 return True
@@ -218,7 +235,7 @@ class Trainer():
 
         # F1 SCORE    
         elif self.configuration.train.termination_criteria == "f1_score":
-            self.last_value = np.mean(self.valid_results.f1).__float__()
+            self.last_value = self.valid_avg_f1
             
             if self.last_value > self.best_value:
                 return True
@@ -236,6 +253,8 @@ class Trainer():
             torch.save(self.model.state_dict(), self.output_dir + f'/best_model.pth')
             self.best_value = self.last_value
             self.epoch_timeout_count = 0
+            print('-'*50)
+            print(f"{bcolors.GREEN} NEW MODEL SAVED {bcolors.ENDC} WITH PRECISION: {bcolors.GREEN}{self.valid_avg_precision:.4f}{bcolors.ENDC}")
             return True
         else:
             self.epoch_timeout_count += 1
@@ -307,6 +326,7 @@ class Trainer():
                         f'  [Avg Precision score: {avg_pre:.4f}]'
                         f'  [Avg Recall score: {avg_rec:.4f}]')
 
+        self.compute_mean_valid_results()
         self.add_to_global_results()
 
     def get_learning_rate(self):
@@ -314,12 +334,19 @@ class Trainer():
             return param_group['lr']
 
 
-    def update_learning_rate(self):
+    def update_learning_rate_custom(self):
         prev_lr = self.get_learning_rate()
         for g in self.optimizer.param_groups:
             g['lr'] = ( prev_lr / 10)
 
         # self.scheduler.step()
+
+    def update_learning_rate(self):
+        if self.configuration.train.lr_scheduler == "step":
+            self.lr_scheduler.step()
+
+        elif self.configuration.train.lr_scheduler == "plateau":
+            self.lr_scheduler.step(self.valid_avg_loss)
 
 
 class Results:
@@ -364,7 +391,7 @@ if __name__ == '__main__':
 
 
         for epoch in range(config.train.epochs):
-            print(f"EPOCH: {epoch} {'-' * 50}")
+            print(f"{bcolors.GREEN} EPOCH: {epoch} {bcolors.ENDC}| LR: {trainer.optimizer.param_groups[0]['lr']} {'-' * 30}") 
             epoch_start_time = datetime.now()
 
 
@@ -375,15 +402,12 @@ if __name__ == '__main__':
             if trainer.termination_criteria():
                 break
 
-            # print(f'Actual LR: {trainer.get_learning_rate()}')
-            # trainer.update_learning_rate()
+            trainer.update_learning_rate()
 
-            print('-'*50 + '\n' + 'DURATION:' + '\n' + '-'*50)
-            epoch_end_time = datetime.now()
-            print('Epoch Duration: {}'.format(epoch_end_time-epoch_start_time))
+            print('-'*50); print(f'EPOCH DURATION: {bcolors.ORANGE} {datetime.now()-epoch_start_time}{bcolors.ENDC}'); print('-'*50); print('\n')
 
 
         trainer.save_global_results()
-        training_end_time = datetime.now()
-        print('Total Training Duration: {}'.format(training_end_time-training_start_time))
-        print("Training Done!")
+        print('\n'); print('-'*50);print(f'{bcolors.GREEN}TRAINING DONE!{bcolors.ENDC}') 
+        print(f'TOTAL TRAINING DURATION: {bcolors.ORANGE} {datetime.now()-training_start_time}{bcolors.ENDC}'); print('-'*50); print('\n')
+
