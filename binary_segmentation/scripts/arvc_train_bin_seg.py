@@ -172,7 +172,7 @@ def compute_best_threshold(pred_, gt_):
 if __name__ == '__main__':
 
     # Files = os.listdir(os.path.join(current_model_path, 'config'))
-    Files = ['config_xyz_0.yaml']
+    Files = ['config_nd_0.yaml']
     for configFile in Files:
         start_time = datetime.now()
 
@@ -203,8 +203,10 @@ if __name__ == '__main__':
 
         if "ADD_RANGE" in config["train"]:
             ADD_RANGE = config["train"]["ADD_RANGE"]
+            ADD_LEN = 1
         else:
             ADD_RANGE = False
+            ADD_LEN = 0
         # --------------------------------------------------------------------------------------------#
         # CHANGE PATH DEPENDING ON MACHINE
         machine_name = socket.gethostname()
@@ -250,9 +252,9 @@ if __name__ == '__main__':
                                                                generator=torch.Generator().manual_seed(74))
 
         # INSTANCE DATALOADERS
-        train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=10,
+        train_dataloader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=0,
                                       shuffle=True, pin_memory=True, drop_last=False)
-        valid_dataloader = DataLoader(valid_dataset, batch_size=BATCH_SIZE, num_workers=10,
+        valid_dataloader = DataLoader(valid_dataset, batch_size=BATCH_SIZE, num_workers=0,
                                       shuffle=True, pin_memory=True, drop_last=False)
 
         # ------------------------------------------------------------------------------------------------------------ #
@@ -263,7 +265,7 @@ if __name__ == '__main__':
             device = torch.device("cpu")
 
         model = PointNetDenseCls(k=OUTPUT_CLASSES,
-                                 n_feat=len(FEATURES),
+                                 n_feat=len(FEATURES) + ADD_LEN,
                                  device=device).to(device)
         loss_fn = torch.nn.BCELoss()
         optimizer = torch.optim.Adam(model.parameters(), lr=LR)

@@ -2,6 +2,7 @@ import numpy as np
 import pandas
 import csv
 import os
+import time
 import socket
 from torch.utils.data import DataLoader
 import torch
@@ -19,7 +20,7 @@ pycharm_projects_path = os.path.dirname(os.path.dirname(current_model_path))
 sys.path.append(current_model_path)
 sys.path.append(pycharm_projects_path)
 
-from model.arvc_PointNet_bin_seg import PointNetDenseCls
+from model.arvc_PointNet_bs import PointNetDenseCls
 from arvc_Utils.Datasets import PLYDataset
 from arvc_Utils.datasetTransforms import np2ply
 
@@ -167,12 +168,12 @@ if __name__ == '__main__':
 
     # --------------------------------------------------------------------------------------------#
     # GET CONFIGURATION PARAMETERS
-    # models_list = ['bs_xyz_bce_vt_loss']
-    models_list = os.listdir(os.path.join(current_model_path, 'trained_models'))
+    # models_list = os.listdir(os.path.join(current_model_path, 'trained_models'))
+    models_list = ['2302241531','2302250729','2302251201']
 
     for MODEL_DIR in models_list:
 
-        MODEL_PATH = os.path.join(current_model_path, 'trained_models', MODEL_DIR) 
+        MODEL_PATH = os.path.join(current_model_path, 'saved_models', MODEL_DIR)
 
         config_file_abs_path = os.path.join(MODEL_PATH, 'config.yaml')
         with open(config_file_abs_path) as file:
@@ -189,6 +190,12 @@ if __name__ == '__main__':
         OUTPUT_CLASSES= config["train"]["OUTPUT_CLASSES"]
         SAVE_PRED_CLOUDS= config["test"]["SAVE_PRED_CLOUDS"]
 
+        if "ADD_RANGE" in config["train"]:
+            ADD_RANGE = config["train"]["ADD_RANGE"]
+            ADD_LEN = 1
+        else:
+            ADD_RANGE = False
+            ADD_LEN = 0
         # --------------------------------------------------------------------------------------------#
         # CHANGE PATH DEPENDING ON MACHINE
         machine_name = socket.gethostname()
@@ -204,7 +211,8 @@ if __name__ == '__main__':
                             labels = LABELS,
                             normalize = NORMALIZE,
                             binary = BINARY,
-                            compute_weights=False)
+                            compute_weights=False,
+                            add_range_=ADD_RANGE)
 
         # INSTANCE DATALOADER
         test_dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, pin_memory=True, drop_last=False)
@@ -215,7 +223,9 @@ if __name__ == '__main__':
         else:
             device = torch.device("cpu")
 
-        model = PointNetDenseCls(k = OUTPUT_CLASSES, n_feat = len(FEATURES), device=device).to(device)
+        model = PointNetDenseCls(k=OUTPUT_CLASSES,
+                                 n_feat=len(FEATURES) + ADD_LEN,
+                                 device=device).to(device)
         loss_fn = torch.nn.BCELoss()
 
         # MAKE DIR WHERE TO SAVE THE CLOUDS
@@ -230,26 +240,33 @@ if __name__ == '__main__':
 
         print('-'*50)
         print('TESTING ON: ', device)
+        st_time = time.time()
         results = test(device_=device,
                     dataloader_=test_dataloader,
                     model_=model,
                     loss_fn_=loss_fn)
-
+        e_time = time.time()
+        dif_time = e_time - st_time
+        print('Model: ', MODEL_DIR, '| TIME: ', dif_time)
         f1_score = np.array(results[1])
         precision = np.array(results[2])
         recall = np.array(results[3])
         confusion_matrix_list = np.array(results[4])
-        conf_matrix = np.mean(confusion_matrix_list, axis=0)
-        tp, fp, tn, fn = conf_matrix[3], conf_matrix[1], conf_matrix[0], conf_matrix[2]
+        mean_cf = np.mean(confusion_matrix_list, axis=0)
+        median_cf = np.median(confusion_matrix_list, axis=0)
+        mean_tp, mean_fp, mean_tn, mean_fn = mean_cf[3], mean_cf[1], mean_cf[0], mean_cf[2]
+        med_tp, med_fp, med_tn, med_fn = median_cf[3], median_cf[1], median_cf[0], median_cf[2]
+
         files_list = results[5]
 
         get_representative_clouds(f1_score, precision, recall, files_list)
-        export_results(np.mean(f1_score), np.mean(precision), np.mean(recall),tp,fp,tn,fn)
+        export_results(np.mean(f1_score), np.mean(precision), np.mean(recall), mean_tp, mean_fp, mean_tn, mean_fn)
 
         print('\n\n')
         print(f'Threshold: {THRESHOLD}')
-        print(f'Avg F1_score: {np.mean(f1_score)}')
-        print(f'Avg Precision: {np.mean(precision)}')
-        print(f'Avg Recall: {np.mean(recall)}')
-        print(f'TN: {tn}, FP: {fp}, FN: {fn}, TP: {tp}')
+        print(f'[Mean F1_score:  {np.mean(f1_score)}] [Median F1_score:  {np.median(f1_score)}]')
+        print(f'[Mean Precision: {np.mean(precision)}] [Median Precision: {np.median(precision)}]')
+        print(f'[Mean Recall:    {np.mean(recall)}] [Median Recall:    {np.median(recall)}]')
+        print(f'[Mean TP: {mean_tp}, FP: {mean_fp}, TN: {mean_tn}, FN: {mean_fn}] '
+              f'[Median TP: {med_tp}, FP: {med_fp}, TN: {med_tn}, FN: {med_fn}]')
         print("Done!")
